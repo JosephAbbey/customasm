@@ -32,4 +32,4 @@ num-integer = { version = "0.1", default_features = false }
 sha2 = "0.10.3"
 
 [build-dependencies]
-vergen = "3.1.0"
+vergen = "7.4.2"
