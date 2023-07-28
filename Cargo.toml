@@ -28,7 +28,7 @@ path = "src/main.rs"
 [dependencies]
 getopts = "0.2.21"
 num-bigint = { version = "0.4.3", default_features = false }
-num-traits = { version = "0.2.15", default_features = false }
+num-traits = { version = "0.2.16", default_features = false }
 num-integer = { version = "0.1.45", default_features = false }
 
 [dev-dependencies]
