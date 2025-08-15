@@ -234,16 +234,20 @@ fn drive_inner(
                     let mut o = "".to_string();
 
                     for f in matches.free.clone() {
+                        // o += &format!(
+                        //     "#include \"{}\"\n",
+                        //     util::filename_navigate(
+                        //         report.clone(),
+                        //         output_file,
+                        //         &f,
+                        //         &Span::new(Rc::new("".to_string()), 0, 0)
+                        //     )
+                        //     .unwrap()
+                        //     .replace("\\", "/")
+                        // );
                         o += &format!(
                             "#include \"{}\"\n",
-                            util::filename_navigate(
-                                report.clone(),
-                                output_file,
-                                &f,
-                                &Span::new(Rc::new("".to_string()), 0, 0)
-                            )
-                            .unwrap()
-                            .replace("\\", "/")
+                            f.replace("\\", "/")
                         );
                     }
 
