@@ -1,9 +1,7 @@
 use crate::*;
 
-
 #[derive(Clone, Debug)]
-pub struct AstDirectiveIf
-{
+pub struct AstDirectiveIf {
     pub header_span: diagn::Span,
     pub condition_expr: expr::Expr,
 
@@ -11,13 +9,11 @@ pub struct AstDirectiveIf
     pub false_arm: Option<asm::AstTopLevel>,
 }
 
-
 pub fn parse(
     report: &mut diagn::Report,
     walker: &mut syntax::Walker,
-    header_span: diagn::Span)
-    -> Result<AstDirectiveIf, ()>
-{
+    header_span: diagn::Span,
+) -> Result<AstDirectiveIf, ()> {
     let expr = expr::parse(report, walker)?;
 
     let true_arm = parse_braced_block(report, walker)?;
@@ -32,31 +28,25 @@ pub fn parse(
     })
 }
 
-
 fn parse_braced_block(
     report: &mut diagn::Report,
-    walker: &mut syntax::Walker)
-    -> Result<asm::AstTopLevel, ()>
-{
+    walker: &mut syntax::Walker,
+) -> Result<asm::AstTopLevel, ()> {
     walker.expect(report, syntax::TokenKind::BraceOpen)?;
 
-    let block = asm::parser::parse_nested_toplevel(
-        report,
-        walker)?;
+    let block = asm::parser::parse_nested_toplevel(report, walker)?;
 
     walker.expect(report, syntax::TokenKind::BraceClose)?;
 
     Ok(block)
 }
 
-
 fn parse_else_blocks(
     report: &mut diagn::Report,
-    walker: &mut syntax::Walker)
-    -> Result<Option<asm::AstTopLevel>, ()>
-{
-    if !walker.next_useful_is(0, syntax::TokenKind::Hash) ||
-        !walker.next_useful_is(1, syntax::TokenKind::Identifier)
+    walker: &mut syntax::Walker,
+) -> Result<Option<asm::AstTopLevel>, ()> {
+    if !walker.next_useful_is(0, syntax::TokenKind::Hash)
+        || !walker.next_useful_is(1, syntax::TokenKind::Identifier)
     {
         return Ok(None);
     }
@@ -64,43 +54,27 @@ fn parse_else_blocks(
     let token = walker.next_nth_useful_token(1);
     let directive_name = walker.get_span_excerpt(token.span);
 
-    if directive_name == "else"
-    {
-        walker.expect(
-            report,
-            syntax::TokenKind::Hash)?;
-        
-        walker.expect(
-            report,
-            syntax::TokenKind::Identifier)?;
-        
-        Ok(Some(parse_braced_block(report, walker)?))
-    }
-    else if directive_name == "elif"
-    {
-        let tk_hash = walker.expect(
-            report,
-            syntax::TokenKind::Hash)?;
+    if directive_name == "else" {
+        walker.expect(report, syntax::TokenKind::Hash)?;
 
-        let tk_name = walker.expect(
-            report,
-            syntax::TokenKind::Identifier)?;
+        walker.expect(report, syntax::TokenKind::Identifier)?;
+
+        Ok(Some(parse_braced_block(report, walker)?))
+    } else if directive_name == "elif" {
+        let tk_hash = walker.expect(report, syntax::TokenKind::Hash)?;
+
+        let tk_name = walker.expect(report, syntax::TokenKind::Identifier)?;
 
         let header_span = tk_hash.span.join(tk_name.span);
-        
-        let ast_if = parse(
-            report,
-            walker,
-            header_span)?;
+
+        let ast_if = parse(report, walker, header_span)?;
 
         let ast_toplevel = asm::AstTopLevel {
             nodes: vec![asm::AstAny::DirectiveIf(ast_if)],
         };
 
         Ok(Some(ast_toplevel))
-    }
-    else
-    {
+    } else {
         Ok(None)
     }
 }

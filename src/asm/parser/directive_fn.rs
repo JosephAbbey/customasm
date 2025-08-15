@@ -1,9 +1,7 @@
 use crate::*;
 
-
 #[derive(Clone, Debug)]
-pub struct AstDirectiveFn
-{
+pub struct AstDirectiveFn {
     pub header_span: diagn::Span,
     pub name_span: diagn::Span,
     pub name: String,
@@ -13,20 +11,16 @@ pub struct AstDirectiveFn
     pub item_ref: Option<util::ItemRef<asm::Symbol>>,
 }
 
-
 #[derive(Clone, Debug)]
-pub struct AstFnParameter
-{
+pub struct AstFnParameter {
     pub name: String,
 }
-
 
 pub fn parse(
     report: &mut diagn::Report,
     walker: &mut syntax::Walker,
-    header_span: diagn::Span)
-    -> Result<AstDirectiveFn, ()>
-{
+    header_span: diagn::Span,
+) -> Result<AstDirectiveFn, ()> {
     let tk_name = walker.expect(report, syntax::TokenKind::Identifier)?;
     let name = walker.get_span_excerpt(tk_name.span).to_string();
 
@@ -34,15 +28,11 @@ pub fn parse(
 
     let mut params = Vec::new();
 
-    while !walker.is_over() &&
-        !walker.next_useful_is(0, syntax::TokenKind::ParenClose)
-    {
+    while !walker.is_over() && !walker.next_useful_is(0, syntax::TokenKind::ParenClose) {
         let tk_param_name = walker.expect(report, syntax::TokenKind::Identifier)?;
         let param_name = walker.get_span_excerpt(tk_param_name.span).to_string();
-        
-        params.push(AstFnParameter {
-            name: param_name,
-        });
+
+        params.push(AstFnParameter { name: param_name });
 
         walker.maybe_expect(syntax::TokenKind::Comma);
     }

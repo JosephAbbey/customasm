@@ -1,8 +1,6 @@
 use crate::*;
 
-
-pub struct ResolveIterator<'ast, 'decls>
-{
+pub struct ResolveIterator<'ast, 'decls> {
     ast: &'ast asm::AstTopLevel,
 
     /// Index into the AST
@@ -25,17 +23,13 @@ pub struct ResolveIterator<'ast, 'decls>
     bank_data: Vec<BankData>,
 }
 
-
 #[derive(Copy, Clone, Debug)]
-pub struct BankData
-{
+pub struct BankData {
     pub cur_position: usize,
 }
 
-
 #[derive(Clone)]
-pub enum ResolverNode<'ast>
-{
+pub enum ResolverNode<'ast> {
     None,
     Symbol(&'ast asm::AstSymbol),
     Instruction(&'ast asm::AstInstruction),
@@ -46,10 +40,8 @@ pub enum ResolverNode<'ast>
     Assert(&'ast asm::AstDirectiveAssert),
 }
 
-
 #[derive(Clone)]
-pub struct ResolverContext<'iter, 'ast, 'decls>
-{
+pub struct ResolverContext<'iter, 'ast, 'decls> {
     pub node: ResolverNode<'ast>,
     pub is_first_iteration: bool,
     pub is_last_iteration: bool,
@@ -59,24 +51,18 @@ pub struct ResolverContext<'iter, 'ast, 'decls>
     pub bank_data: &'iter BankData,
 }
 
-
-impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
-{
+impl<'ast, 'decls> ResolveIterator<'ast, 'decls> {
     pub fn new<'defs>(
         ast: &'ast asm::AstTopLevel,
         defs: &'defs asm::ItemDefs,
         is_first_iteration: bool,
-        is_last_iteration: bool)
-        -> ResolveIterator<'ast, 'decls>
-    {
-        let bank_datum = BankData {
-            cur_position: 0,
-        };
-    
+        is_last_iteration: bool,
+    ) -> ResolveIterator<'ast, 'decls> {
+        let bank_datum = BankData { cur_position: 0 };
+
         let bank_data = vec![bank_datum; defs.bankdefs.len()];
-    
-        static GLOBAL_SYMBOL_CTX: util::SymbolContext =
-            util::SymbolContext::new_global();
+
+        static GLOBAL_SYMBOL_CTX: util::SymbolContext = util::SymbolContext::new_global();
 
         ResolveIterator {
             ast,
@@ -92,20 +78,15 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
         }
     }
 
-
     pub fn next<'iter>(
         &'iter mut self,
         report: &mut diagn::Report,
         decls: &'decls asm::ItemDecls,
-        defs: &asm::ItemDefs)
-        -> Result<Option<ResolverContext<'iter, 'ast, 'decls>>, ()>
-    {
-        self.advance_address(
-            report,
-            defs)?;
+        defs: &asm::ItemDefs,
+    ) -> Result<Option<ResolverContext<'iter, 'ast, 'decls>>, ()> {
+        self.advance_address(report, defs)?;
 
-        if self.index >= self.ast.nodes.len()
-        {
+        if self.index >= self.ast.nodes.len() {
             return Ok(None);
         }
 
@@ -117,10 +98,8 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
         let node: ResolverNode;
         let file_handle_ctx: Option<util::FileServerHandle>;
 
-        match ast_any
-        {
-            asm::AstAny::DirectiveBank(ast_bank) =>
-            {
+        match ast_any {
+            asm::AstAny::DirectiveBank(ast_bank) => {
                 self.bank_ref = ast_bank.item_ref.unwrap();
 
                 self.index += 1;
@@ -128,8 +107,7 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
                 file_handle_ctx = Some(ast_bank.header_span.file_handle);
             }
 
-            asm::AstAny::DirectiveBankdef(ast_bankdef) =>
-            {
+            asm::AstAny::DirectiveBankdef(ast_bankdef) => {
                 self.bank_ref = ast_bankdef.item_ref.unwrap();
 
                 self.index += 1;
@@ -137,8 +115,7 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
                 file_handle_ctx = Some(ast_bankdef.header_span.file_handle);
             }
 
-            asm::AstAny::Symbol(ast_symbol) =>
-            {
+            asm::AstAny::Symbol(ast_symbol) => {
                 let item_ref = ast_symbol.item_ref.unwrap();
                 let decl = decls.symbols.get(item_ref);
 
@@ -146,29 +123,23 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
 
                 // Honor `labelalign`
                 let bankdef = defs.bankdefs.get(self.bank_ref);
-                if let Some(label_align) = bankdef.label_align
-                {
-                    if decl.depth == 0
-                    {
+                if let Some(label_align) = bankdef.label_align {
+                    if decl.depth == 0 {
                         let span = ast_symbol.decl_span;
                         let bank = defs.bankdefs.get(self.bank_ref);
                         let cur_bank_data = &mut self.bank_data[self.bank_ref.0];
-        
-                        let cur_address_in_bits = bank.addr_start
-                            .checked_mul(
-                                report,
-                                span,
-                                &util::BigInt::from(bank.addr_unit))?
+
+                        let cur_address_in_bits = bank
+                            .addr_start
+                            .checked_mul(report, span, &util::BigInt::from(bank.addr_unit))?
                             .checked_add(
                                 report,
                                 span,
-                                &util::BigInt::from(cur_bank_data.cur_position))?;
-    
-                        cur_bank_data.cur_position += bits_until_alignment(
-                            report,
-                            span,
-                            cur_address_in_bits,
-                            label_align)?;
+                                &util::BigInt::from(cur_bank_data.cur_position),
+                            )?;
+
+                        cur_bank_data.cur_position +=
+                            bits_until_alignment(report, span, cur_address_in_bits, label_align)?;
                     }
                 }
 
@@ -177,20 +148,17 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
                 file_handle_ctx = Some(ast_symbol.decl_span.file_handle);
             }
 
-            asm::AstAny::Instruction(ast_instr) =>
-            {
+            asm::AstAny::Instruction(ast_instr) => {
                 self.index += 1;
                 node = ResolverNode::Instruction(ast_instr);
                 file_handle_ctx = Some(ast_instr.span.file_handle);
             }
 
-            asm::AstAny::DirectiveData(ast_data) =>
-            {
+            asm::AstAny::DirectiveData(ast_data) => {
                 let elem_index = self.subindex;
 
                 self.subindex += 1;
-                if self.subindex >= ast_data.item_refs.len()
-                {
+                if self.subindex >= ast_data.item_refs.len() {
                     self.index += 1;
                     self.subindex = 0;
                 }
@@ -199,43 +167,38 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
                 file_handle_ctx = Some(ast_data.header_span.file_handle);
             }
 
-            asm::AstAny::DirectiveRes(ast_res) =>
-            {
+            asm::AstAny::DirectiveRes(ast_res) => {
                 self.index += 1;
                 node = ResolverNode::Res(ast_res);
                 file_handle_ctx = Some(ast_res.header_span.file_handle);
             }
 
-            asm::AstAny::DirectiveAlign(ast_align) =>
-            {
+            asm::AstAny::DirectiveAlign(ast_align) => {
                 self.index += 1;
                 node = ResolverNode::Align(ast_align);
                 file_handle_ctx = Some(ast_align.header_span.file_handle);
             }
 
-            asm::AstAny::DirectiveAddr(ast_addr) =>
-            {
+            asm::AstAny::DirectiveAddr(ast_addr) => {
                 self.index += 1;
                 node = ResolverNode::Addr(ast_addr);
                 file_handle_ctx = Some(ast_addr.header_span.file_handle);
             }
 
-            asm::AstAny::DirectiveAssert(ast_assert) =>
-            {
+            asm::AstAny::DirectiveAssert(ast_assert) => {
                 self.index += 1;
                 node = ResolverNode::Assert(ast_assert);
                 file_handle_ctx = Some(ast_assert.header_span.file_handle);
             }
 
-            asm::AstAny::DirectiveBits(..) |
-            asm::AstAny::DirectiveFn(..) |
-            asm::AstAny::DirectiveIf(..) |
-            asm::AstAny::DirectiveInclude(..) |
-            asm::AstAny::DirectiveLabelAlign(..) |
-            asm::AstAny::DirectiveNoEmit(..) |
-            asm::AstAny::DirectiveOnce(..) |
-            asm::AstAny::DirectiveRuledef(..) =>
-            {
+            asm::AstAny::DirectiveBits(..)
+            | asm::AstAny::DirectiveFn(..)
+            | asm::AstAny::DirectiveIf(..)
+            | asm::AstAny::DirectiveInclude(..)
+            | asm::AstAny::DirectiveLabelAlign(..)
+            | asm::AstAny::DirectiveNoEmit(..)
+            | asm::AstAny::DirectiveOnce(..)
+            | asm::AstAny::DirectiveRuledef(..) => {
                 self.index += 1;
                 node = ResolverNode::None;
                 file_handle_ctx = None;
@@ -253,16 +216,13 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
         }))
     }
 
-
     pub fn next_simple<'iter>(
         &'iter mut self,
         _report: &mut diagn::Report,
         decls: &'decls asm::ItemDecls,
-        _defs: &asm::ItemDefs)
-        -> Result<Option<ResolverContext<'iter, 'ast, 'decls>>, ()>
-    {
-        if self.index >= self.ast.nodes.len()
-        {
+        _defs: &asm::ItemDefs,
+    ) -> Result<Option<ResolverContext<'iter, 'ast, 'decls>>, ()> {
+        if self.index >= self.ast.nodes.len() {
             return Ok(None);
         }
 
@@ -274,10 +234,8 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
         let node: ResolverNode;
         let file_handle_ctx: Option<util::FileServerHandle>;
 
-        match ast_any
-        {
-            asm::AstAny::Symbol(ast_symbol) =>
-            {
+        match ast_any {
+            asm::AstAny::Symbol(ast_symbol) => {
                 let item_ref = ast_symbol.item_ref.unwrap();
                 let decl = decls.symbols.get(item_ref);
 
@@ -288,17 +246,14 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
                 file_handle_ctx = Some(ast_symbol.decl_span.file_handle);
             }
 
-            _ =>
-            {
+            _ => {
                 self.index += 1;
                 node = ResolverNode::None;
                 file_handle_ctx = None;
             }
         }
 
-        static DUMMY_BANK_DATA: BankData = BankData {
-            cur_position: 0,
-        };
+        static DUMMY_BANK_DATA: BankData = BankData { cur_position: 0 };
 
         Ok(Some(ResolverContext {
             node,
@@ -311,25 +266,19 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
         }))
     }
 
-
     fn advance_address(
         &mut self,
         report: &mut diagn::Report,
-        defs: &asm::ItemDefs)
-        -> Result<(), ()>
-    {
-        if self.index_prev.is_none() ||
-            self.subindex_prev.is_none()
-        {
+        defs: &asm::ItemDefs,
+    ) -> Result<(), ()> {
+        if self.index_prev.is_none() || self.subindex_prev.is_none() {
             return Ok(());
         }
 
         let ast_any = &self.ast.nodes[self.index_prev.unwrap()];
-        
-        match ast_any
-        {
-            asm::AstAny::Instruction(ast_instr) =>
-            {
+
+        match ast_any {
+            asm::AstAny::Instruction(ast_instr) => {
                 let item_ref = ast_instr.item_ref.unwrap();
                 let instr = defs.instructions.get(item_ref);
 
@@ -337,16 +286,14 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
 
                 // Advance the current bank's position
                 cur_bank_data.cur_position += {
-                    match instr.encoding.size
-                    {
+                    match instr.encoding.size {
                         Some(size) => size,
                         None => 0,
                     }
                 };
             }
 
-            asm::AstAny::DirectiveData(ast_data) =>
-            {
+            asm::AstAny::DirectiveData(ast_data) => {
                 let item_ref = ast_data.item_refs[self.subindex_prev.unwrap()];
                 let data_elem = defs.data_elems.get(item_ref);
 
@@ -354,16 +301,14 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
 
                 // Advance the current bank's position
                 cur_bank_data.cur_position += {
-                    match data_elem.encoding.size
-                    {
+                    match data_elem.encoding.size {
                         Some(size) => size,
                         None => 0,
                     }
                 };
             }
 
-            asm::AstAny::DirectiveRes(ast_res) =>
-            {
+            asm::AstAny::DirectiveRes(ast_res) => {
                 let item_ref = ast_res.item_ref.unwrap();
                 let res = defs.res_directives.get(item_ref);
 
@@ -373,8 +318,7 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
                 cur_bank_data.cur_position += res.reserve_size;
             }
 
-            asm::AstAny::DirectiveAlign(ast_align) =>
-            {
+            asm::AstAny::DirectiveAlign(ast_align) => {
                 let item_ref = ast_align.item_ref.unwrap();
                 let align = defs.align_directives.get(item_ref);
                 let span = ast_align.expr.span();
@@ -382,25 +326,20 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
                 let bank = defs.bankdefs.get(self.bank_ref);
                 let cur_bank_data = &mut self.bank_data[self.bank_ref.0];
 
-                let cur_address_in_bits = bank.addr_start
-                    .checked_mul(
-                        report,
-                        span,
-                        &util::BigInt::from(bank.addr_unit))?
+                let cur_address_in_bits = bank
+                    .addr_start
+                    .checked_mul(report, span, &util::BigInt::from(bank.addr_unit))?
                     .checked_add(
                         report,
                         span,
-                        &util::BigInt::from(cur_bank_data.cur_position))?;
+                        &util::BigInt::from(cur_bank_data.cur_position),
+                    )?;
 
-                cur_bank_data.cur_position += bits_until_alignment(
-                    report,
-                    span,
-                    cur_address_in_bits,
-                    align.align_size)?;
+                cur_bank_data.cur_position +=
+                    bits_until_alignment(report, span, cur_address_in_bits, align.align_size)?;
             }
 
-            asm::AstAny::DirectiveAddr(ast_addr) =>
-            {
+            asm::AstAny::DirectiveAddr(ast_addr) => {
                 let item_ref = ast_addr.item_ref.unwrap();
                 let addr = defs.addr_directives.get(item_ref);
 
@@ -408,18 +347,14 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
                 let cur_bank_data = &mut self.bank_data[self.bank_ref.0];
 
                 let new_position = {
-                    if addr.address >= bank.addr_start
-                    {
-                        &addr.address.checked_sub(
-                                report,
-                                ast_addr.header_span,
-                                &bank.addr_start)?
+                    if addr.address >= bank.addr_start {
+                        &addr
+                            .address
+                            .checked_sub(report, ast_addr.header_span, &bank.addr_start)?
                             .maybe_into::<usize>()
                             .unwrap_or(0)
                             * bank.addr_unit
-                    }
-                    else
-                    {
+                    } else {
                         0
                     }
                 };
@@ -434,132 +369,106 @@ impl<'ast, 'decls> ResolveIterator<'ast, 'decls>
     }
 }
 
-
 fn bits_until_alignment(
     report: &mut diagn::Report,
     span: diagn::Span,
     cur_address_in_bits: util::BigInt,
-    alignment: usize)
-    -> Result<usize, ()>
-{
-    if alignment == 0
-    {
+    alignment: usize,
+) -> Result<usize, ()> {
+    if alignment == 0 {
         return Ok(0);
     }
 
-    let excess_bits_bigint = cur_address_in_bits.checked_mod(
-        report,
-        span,
-        &util::BigInt::new(alignment, None))?;
+    let excess_bits_bigint =
+        cur_address_in_bits.checked_mod(report, span, &util::BigInt::new(alignment, None))?;
 
-    let excess_bits = excess_bits_bigint.checked_into::<usize>(
-        report,
-        span)?;
-        
-    if excess_bits != 0
-    {
+    let excess_bits = excess_bits_bigint.checked_into::<usize>(report, span)?;
+
+    if excess_bits != 0 {
         Ok(alignment - excess_bits)
-    }
-    else
-    {
+    } else {
         Ok(0)
     }
 }
 
-
-impl<'iter, 'ast, 'decls> ResolverContext<'iter, 'ast, 'decls>
-{
-    pub fn can_guess(&self) -> bool
-    {
+impl<'iter, 'ast, 'decls> ResolverContext<'iter, 'ast, 'decls> {
+    pub fn can_guess(&self) -> bool {
         !self.is_last_iteration
     }
 
-
-    pub fn get_output_position(
-        &self,
-        defs: &asm::ItemDefs)
-        -> Option<usize>
-    {
+    pub fn get_output_position(&self, defs: &asm::ItemDefs) -> Option<usize> {
         let bank = defs.bankdefs.get(self.bank_ref);
 
         Some(bank.output_offset? + self.bank_data.cur_position)
     }
-
 
     pub fn get_address(
         &self,
         report: &mut diagn::Report,
         span: diagn::Span,
         defs: &asm::ItemDefs,
-        can_guess: bool)
-        -> Result<Option<util::BigInt>, ()>
-    {
+        can_guess: bool,
+    ) -> Result<Option<util::BigInt>, ()> {
         let bankdef = &defs.bankdefs.get(self.bank_ref);
         let addr_unit = bankdef.addr_unit;
 
         let cur_position = self.bank_data.cur_position;
-        
+
         let excess_bits = cur_position % addr_unit;
-        if excess_bits != 0 && !can_guess
-        {
+        if excess_bits != 0 && !can_guess {
             return Ok(None);
         }
-            
-        let addr = util::BigInt::from(cur_position / addr_unit)
-            .checked_add(
-                report,
-                span,
-                &bankdef.addr_start)?;
-        
+
+        let addr = util::BigInt::from(cur_position / addr_unit).checked_add(
+            report,
+            span,
+            &bankdef.addr_start,
+        )?;
+
         Ok(Some(addr))
     }
-
 
     pub fn eval_address(
         &self,
         report: &mut diagn::Report,
         span: diagn::Span,
         defs: &asm::ItemDefs,
-        can_guess: bool)
-        -> Result<util::BigInt, ()>
-    {
+        can_guess: bool,
+    ) -> Result<util::BigInt, ()> {
         let bankdef = &defs.bankdefs.get(self.bank_ref);
         let addr_unit = bankdef.addr_unit;
 
         let cur_position = self.bank_data.cur_position;
-        
+
         let excess_bits = cur_position % addr_unit;
-        if excess_bits != 0 && !can_guess
-        {
+        if excess_bits != 0 && !can_guess {
             let bits_short = addr_unit - excess_bits;
 
             let plural = {
-                if bits_short > 1
-                    { "bits" }
-                else
-                    { "bit" }
+                if bits_short > 1 {
+                    "bits"
+                } else {
+                    "bit"
+                }
             };
 
-            report.push_parent(
-                "position is not aligned to an address",
-                span);
+            report.push_parent("position is not aligned to an address", span);
 
-            report.note(
-                format!(
-                    "needs {} more {} for next alignment",
-                    bits_short, plural));
+            report.note(format!(
+                "needs {} more {} for next alignment",
+                bits_short, plural
+            ));
 
             report.pop_parent();
 
             return Err(());
         }
-        
-            
-        let addr = util::BigInt::from(cur_position / addr_unit)
-            .checked_add(
-                report,
-                span,
-                &bankdef.addr_start)?;
+
+        let addr = util::BigInt::from(cur_position / addr_unit).checked_add(
+            report,
+            span,
+            &bankdef.addr_start,
+        )?;
 
         Ok(addr)
     }

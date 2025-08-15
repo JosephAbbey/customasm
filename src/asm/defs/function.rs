@@ -1,39 +1,30 @@
 use crate::*;
 
-
 #[derive(Debug)]
-pub struct Function
-{
+pub struct Function {
     pub item_ref: util::ItemRef<asm::Symbol>,
     pub fn_ref: util::ItemRef<Self>,
     pub params: Vec<FunctionParameter>,
     pub body: expr::Expr,
 }
 
-
 #[derive(Debug)]
-pub struct FunctionParameter
-{
+pub struct FunctionParameter {
     pub name: String,
 }
-
 
 pub fn define(
     _report: &mut diagn::Report,
     ast: &asm::AstTopLevel,
     _decls: &mut asm::ItemDecls,
-    defs: &mut asm::ItemDefs)
-    -> Result<(), ()>
-{
-    for any_node in &ast.nodes
-    {
-        if let asm::AstAny::DirectiveFn(node) = any_node
-        {
+    defs: &mut asm::ItemDefs,
+) -> Result<(), ()> {
+    for any_node in &ast.nodes {
+        if let asm::AstAny::DirectiveFn(node) = any_node {
             let item_ref = node.item_ref.unwrap();
 
             let mut params = Vec::new();
-            for param in &node.params
-            {
+            for param in &node.params {
                 params.push(FunctionParameter {
                     name: param.name.clone(),
                 });
@@ -63,7 +54,6 @@ pub fn define(
             defs.symbols.define(item_ref, symbol);
         }
     }
-
 
     Ok(())
 }

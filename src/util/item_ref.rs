@@ -1,34 +1,22 @@
 #[derive(Eq, PartialEq)]
-pub struct ItemRef<T>(
-    pub usize,
-    std::marker::PhantomData<*const T>);
+pub struct ItemRef<T>(pub usize, std::marker::PhantomData<*const T>);
 
-
-impl<T> ItemRef<T>
-{
-    pub fn new(value: usize) -> Self
-    {
+impl<T> ItemRef<T> {
+    pub fn new(value: usize) -> Self {
         ItemRef(value, std::marker::PhantomData)
     }
 }
 
-
-impl<T> Clone for ItemRef<T>
-{
-    fn clone(&self) -> Self
-    {
+impl<T> Clone for ItemRef<T> {
+    fn clone(&self) -> Self {
         ItemRef(self.0, std::marker::PhantomData)
     }
 }
 
-
 impl<T> Copy for ItemRef<T> {}
 
-
-impl<T> std::fmt::Debug for ItemRef<T>
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
-    {
+impl<T> std::fmt::Debug for ItemRef<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = std::any::type_name::<T>();
 
         f.write_str("ItemRef<")?;

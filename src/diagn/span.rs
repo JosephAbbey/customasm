@@ -1,156 +1,112 @@
 use crate::*;
 
-
 #[derive(Copy, Clone, Hash, Eq)]
-pub struct Span
-{
-	pub file_handle: util::FileServerHandle,
+pub struct Span {
+    pub file_handle: util::FileServerHandle,
 
-	/// Represents byte indices into the file contents
-	/// (as opposed to UTF-8 char boundaries).
-	location: (usize, usize),
+    /// Represents byte indices into the file contents
+    /// (as opposed to UTF-8 char boundaries).
+    location: (usize, usize),
 }
 
+impl Span {
+    pub fn new(file_handle: util::FileServerHandle, start: usize, end: usize) -> Span {
+        Span {
+            file_handle,
+            location: (start, end),
+        }
+    }
 
-impl Span
-{
-	pub fn new(
-		file_handle: util::FileServerHandle,
-		start: usize,
-		end: usize)
-		-> Span
-	{
-		Span {
-			file_handle,
-			location: (start, end)
-		}
-	}
-	
-	
-	pub fn new_dummy() -> Span
-	{
-		Span {
-			file_handle: 0,
-			location: (usize::MAX, usize::MAX),
-		}
-	}
+    pub fn new_dummy() -> Span {
+        Span {
+            file_handle: 0,
+            location: (usize::MAX, usize::MAX),
+        }
+    }
 
+    pub fn location(&self) -> Option<(usize, usize)> {
+        if self.location.0 == usize::MAX {
+            return None;
+        }
 
-	pub fn location(&self) -> Option<(usize, usize)>
-	{
-		if self.location.0 == usize::MAX
-		{
-			return None;
-		}
+        Some(self.location)
+    }
 
-		Some(self.location)
-	}
+    pub fn length(&self) -> usize {
+        if self.location.0 == usize::MAX {
+            return 0;
+        }
 
+        self.location.1 - self.location.0
+    }
 
-	pub fn length(&self) -> usize
-	{
-		if self.location.0 == usize::MAX
-		{
-			return 0;
-		}
+    pub fn before(&self) -> Span {
+        if self.location.0 == usize::MAX {
+            *self
+        } else {
+            let start = self.location.0;
 
-		self.location.1 - self.location.0
-	}
-	
-	
-	pub fn before(&self) -> Span
-	{
-		if self.location.0 == usize::MAX
-		{
-			*self
-		}
-		
-		else
-		{
-			let start = self.location.0;
-			
-			Span {
-				file_handle: self.file_handle,
-				location: (start, start),
-			}
-		}
-	}
-	
-	
-	pub fn after(&self) -> Span
-	{
-		if self.location.0 == usize::MAX
-		{
-			*self
-		}
-		
-		else
-		{
-			let end = self.location.1;
-			
-			Span {
-				file_handle: self.file_handle,
-				location: (end, end),
-			}
-		}
-	}
-	
-	
-	pub fn join(&self, other: Span) -> Span
-	{
-		match (self.location, other.location)
-		{
-			(_, (usize::MAX, _)) => *self,
-			((usize::MAX, _), _) => other,
-			(self_loc, other_loc) =>
-			{
-				assert!(
-					self.file_handle == other.file_handle,
-					"joining spans from different files");
+            Span {
+                file_handle: self.file_handle,
+                location: (start, start),
+            }
+        }
+    }
 
-				let start = std::cmp::min(
-					self_loc.0,
-					other_loc.0);
+    pub fn after(&self) -> Span {
+        if self.location.0 == usize::MAX {
+            *self
+        } else {
+            let end = self.location.1;
 
-				let end = std::cmp::max(
-					self_loc.1,
-					other_loc.1);
-				
-				Span {
-					file_handle: self.file_handle,
-					location: (start, end),
-				}
-			}
-		}
-	}
+            Span {
+                file_handle: self.file_handle,
+                location: (end, end),
+            }
+        }
+    }
+
+    pub fn join(&self, other: Span) -> Span {
+        match (self.location, other.location) {
+            (_, (usize::MAX, _)) => *self,
+            ((usize::MAX, _), _) => other,
+            (self_loc, other_loc) => {
+                assert!(
+                    self.file_handle == other.file_handle,
+                    "joining spans from different files"
+                );
+
+                let start = std::cmp::min(self_loc.0, other_loc.0);
+
+                let end = std::cmp::max(self_loc.1, other_loc.1);
+
+                Span {
+                    file_handle: self.file_handle,
+                    location: (start, end),
+                }
+            }
+        }
+    }
 }
 
-
-impl PartialEq for Span
-{
-	fn eq(&self, other: &diagn::Span) -> bool
-	{
-		self.file_handle == other.file_handle &&
-			self.location == other.location
-	}
+impl PartialEq for Span {
+    fn eq(&self, other: &diagn::Span) -> bool {
+        self.file_handle == other.file_handle && self.location == other.location
+    }
 }
 
-
-impl std::fmt::Debug for Span
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
-    {
+impl std::fmt::Debug for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Span(")?;
-		write!(f, "file#{:?}", &self.file_handle)?;
+        write!(f, "file#{:?}", &self.file_handle)?;
 
-		if self.location.0 != usize::MAX
-		{
-			f.write_str("[")?;
-			<usize as std::fmt::Debug>::fmt(&self.location.0, f)?;
-			f.write_str("..")?;
-			<usize as std::fmt::Debug>::fmt(&self.location.1, f)?;
-			f.write_str("]")?;
-		}
+        if self.location.0 != usize::MAX {
+            f.write_str("[")?;
+            <usize as std::fmt::Debug>::fmt(&self.location.0, f)?;
+            f.write_str("..")?;
+            <usize as std::fmt::Debug>::fmt(&self.location.1, f)?;
+            f.write_str("]")?;
+        }
 
         f.write_str(")")?;
         Ok(())
