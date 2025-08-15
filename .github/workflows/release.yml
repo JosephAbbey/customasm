@@ -38,7 +38,6 @@ jobs:
           args: --verbose --no-fail-fast
         env:
           CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Zprofile'
 
       - name: Get help message
         id: help
