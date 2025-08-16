@@ -114,7 +114,7 @@ jobs:
           args: --release --verbose --target=x86_64-unknown-linux-gnu
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: x86_64-unknown-linux-gnu
           path: ./target/x86_64-unknown-linux-gnu/release/customasm
@@ -143,7 +143,7 @@ jobs:
           args: --lib --release --verbose --target wasm32-unknown-unknown
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wasm32-unknown-unknown.wasm
           path: ./target/wasm32-unknown-unknown/release/customasmlib.wasm
@@ -155,7 +155,7 @@ jobs:
           cp -r ./web ./build/web
 
       - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v0
+        uses: actions/upload-pages-artifact@v4
         with:
           path: ./build
           retention-days: 1
@@ -170,7 +170,7 @@ jobs:
         uses: actions/checkout@master
 
       - name: Download Web Build
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: wasm32-unknown-unknown.wasm
           path: ./web
@@ -186,7 +186,7 @@ jobs:
         run: node ./htmlCollector.js ./web/index.html ./web/customasm.html
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: any-unknown-any-web.html
           path: ./web/customasm.html
@@ -209,11 +209,11 @@ jobs:
 
     steps:
       - name: Setup Pages
-        uses: actions/configure-pages@v2
+        uses: actions/configure-pages@v5
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v1
+        uses: actions/deploy-pages@v4
 
   release:
     needs: [test, windows_build, linux_build, standalone_web_build, deploy]
@@ -254,17 +254,17 @@ jobs:
           prerelease: false
 
       - name: Download Windows Build
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: x86_64-pc-windows-gnu.exe
 
       - name: Download Linux Build
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: x86_64-unknown-linux-gnu
 
       - name: Download Standalone Web Build
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: any-unknown-any-web.html
 
