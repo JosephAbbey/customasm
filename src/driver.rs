@@ -1,9 +1,11 @@
-use crate::*;
+use crate::{util::BitVec, *};
 
 struct Command {
     pub input_filenames: Vec<String>,
     pub output_groups: Vec<CommandOutput>,
     pub opts: asm::AssemblyOptions,
+    pub disassemble: Option<String>,
+    pub number_format: asm::NumberFormat,
     pub quiet: bool,
     pub use_colors: bool,
     pub show_version: bool,
@@ -16,6 +18,7 @@ struct CommandOutput {
     pub output_filename: Option<String>,
 }
 
+#[derive(Debug, Clone)]
 pub enum OutputFormat {
     Binary,
     Annotated { base: usize, group: usize },
@@ -23,8 +26,11 @@ pub enum OutputFormat {
     HexStr,
     BinDump,
     HexDump,
+    BinLine { address_unit: usize },
+    HexLine { address_unit: usize },
     Mif,
     IntelHex { address_unit: usize },
+    Coe { address_unit: usize },
     List(util::FormatListOptions),
     DecComma,
     HexComma,
@@ -32,6 +38,8 @@ pub enum OutputFormat {
     HexSpace,
     DecC,
     HexC,
+    BinVhdl { address_unit: usize },
+    HexVhdl { address_unit: usize },
     LogiSim8,
     LogiSim16,
     AddressSpan,
@@ -112,6 +120,47 @@ fn assemble_with_command(
     let defs = assembly.defs.as_ref().unwrap();
     let iterations_taken = assembly.iterations_taken.unwrap();
 
+    if let Some(disassemble) = &command.disassemble {
+        if !command.quiet {
+            println!("disassembling `{}`...", disassemble);
+        }
+
+        let file_handle = fileserver.get_handle(report, None, &disassemble)?;
+        let output = fileserver.get_str(report, None, file_handle)?;
+
+        let disassembly = asm::disassemble(
+            report,
+            &command.number_format,
+            &defs.ruledefs,
+            &parse_output(output, command.output_groups[0].format.as_ref().unwrap()),
+        );
+
+        let disassembled = command
+            .input_filenames
+            .iter()
+            .map(|file| format!("#include \"{}\"", file.replace("\\", "/")))
+            .reduce(|acc, e| acc + "\n" + &e)
+            .unwrap_or(String::new())
+            + "\n\n"
+            + &disassembly?.assembly;
+
+        if !command.quiet {
+            println!("disassembly result:");
+        }
+
+        if command.output_groups[0].printout {
+            println!("{}", disassembled);
+        } else if let Some(output_filename) = &command.output_groups[0].output_filename {
+            if !command.quiet {
+                println!("writing disassembly to `{}`...", output_filename);
+            }
+
+            fileserver.write_bytes(report, None, output_filename, &disassembled.into_bytes())?;
+        }
+
+        return Ok(assembly);
+    }
+
     for output_group in &command.output_groups {
         if let Some(format) = &output_group.format {
             let formatted = format_output(fileserver, decls, defs, output, format);
@@ -151,7 +200,7 @@ fn make_opts() -> getopts::Options {
     opts.optopt(
         "f",
         "format",
-        "The format of the output file.\n\
+        "The format of the output file (input for disassembly).\n\
 		See below for possible values.",
         "FORMAT",
     );
@@ -173,6 +222,24 @@ fn make_opts() -> getopts::Options {
             asm_opts.max_iterations
         ),
         "NUM",
+        getopts::HasArg::Maybe,
+        getopts::Occur::Optional,
+    );
+
+    opts.opt(
+        "x",
+        "disassemble",
+        "Disassemble the file.",
+        "FILE",
+        getopts::HasArg::Yes,
+        getopts::Occur::Optional,
+    );
+
+    opts.opt(
+        "",
+        "number-format",
+        "The format of numbers in generated assembly.",
+        "NUMFORMAT",
         getopts::HasArg::Maybe,
         getopts::Occur::Optional,
     );
@@ -235,6 +302,8 @@ fn parse_command(report: &mut diagn::Report, args: &Vec<String>) -> Result<Comma
         input_filenames: Vec::new(),
         output_groups: Vec::new(),
         opts: asm::AssemblyOptions::new(),
+        disassemble: None,
+        number_format: asm::NumberFormat::Dec,
         quiet: false,
         use_colors: true,
         show_version: false,
@@ -315,6 +384,14 @@ fn parse_command(report: &mut diagn::Report, args: &Vec<String>) -> Result<Comma
             };
         }
 
+        if let Some(disassemble) = parsed.opt_str("x") {
+            command.disassemble = Some(disassemble);
+        }
+
+        if let Some(number_format) = parsed.opt_str("number-format") {
+            command.number_format = asm::parse_number_format(report, &number_format)?;
+        }
+
         // Add the input filenames to the main command
         for input_filename in parsed.free.into_iter() {
             command.input_filenames.push(input_filename);
@@ -336,28 +413,45 @@ fn parse_command(report: &mut diagn::Report, args: &Vec<String>) -> Result<Comma
 
         if !group.printout && group.output_filename.is_none() && command.input_filenames.len() >= 1
         {
-            group.output_filename = Some(derive_output_filename(
-                report,
-                &group.format.as_ref().unwrap(),
-                &command.input_filenames[0],
-            )?);
+            group.output_filename = if let Some(ref f) = command.disassemble {
+                Some(derive_output_filename(
+                    report,
+                    &OutputFormatOverall::Disassemble,
+                    f,
+                )?)
+            } else {
+                Some(derive_output_filename(
+                    report,
+                    &OutputFormatOverall::Assemble(group.format.as_ref().unwrap().clone()),
+                    &command.input_filenames[0],
+                )?)
+            };
         }
     }
 
     Ok(command)
 }
 
+enum OutputFormatOverall {
+    Assemble(OutputFormat),
+    Disassemble,
+}
+
 fn derive_output_filename(
     report: &mut diagn::Report,
-    format: &OutputFormat,
+    format: &OutputFormatOverall,
     input_filename: &str,
 ) -> Result<String, ()> {
-    let extension = {
-        match format {
+    let extension = match format {
+        OutputFormatOverall::Assemble(format) => match format {
             OutputFormat::Binary => "bin",
             OutputFormat::SymbolsMesenMlb => "mlb",
+            OutputFormat::Coe { .. } => "coe",
+            OutputFormat::BinVhdl { .. } => "vhdl",
+            OutputFormat::HexVhdl { .. } => "vhdl",
             _ => "txt",
-        }
+        },
+        OutputFormatOverall::Disassemble => "asm",
     };
 
     let mut output_filename = std::path::PathBuf::from(input_filename);
@@ -483,12 +577,22 @@ pub fn parse_output_format(
             "binstr" => OutputFormat::BinStr,
             "hexstr" => OutputFormat::HexStr,
 
+            "binline" => OutputFormat::BinLine {
+                address_unit: get_arg_usize(&mut params, report, "addr_unit", 8, check_nonzero)?,
+            },
+            "hexline" => OutputFormat::HexLine {
+                address_unit: get_arg_usize(&mut params, report, "addr_unit", 8, check_nonzero)?,
+            },
+
             "bindump" => OutputFormat::BinDump,
             "hexdump" => OutputFormat::HexDump,
 
             "mif" => OutputFormat::Mif,
             "intelhex" => OutputFormat::IntelHex {
                 address_unit: get_arg_usize(&mut params, report, "addr_unit", 8, check_8_16_or_32)?,
+            },
+            "coe" => OutputFormat::Coe {
+                address_unit: get_arg_usize(&mut params, report, "addr_unit", 8, check_valid_base)?,
             },
 
             "list" => OutputFormat::List(util::FormatListOptions {
@@ -509,6 +613,13 @@ pub fn parse_output_format(
             "decc" => OutputFormat::DecC,
             "hexc" => OutputFormat::HexC,
             "c" => OutputFormat::HexC,
+
+            "binvhdl" => OutputFormat::BinVhdl {
+                address_unit: get_arg_usize(&mut params, report, "addr_unit", 8, check_nonzero)?,
+            },
+            "hexvhdl" => OutputFormat::HexVhdl {
+                address_unit: get_arg_usize(&mut params, report, "addr_unit", 8, check_nonzero)?,
+            },
 
             "logisim8" => OutputFormat::LogiSim8,
             "logisim16" => OutputFormat::LogiSim16,
@@ -630,8 +741,12 @@ pub fn format_output(
             OutputFormat::BinDump => output.format_bindump(),
             OutputFormat::HexDump => output.format_hexdump(),
 
+            OutputFormat::BinLine { address_unit } => output.format_binline(*address_unit),
+            OutputFormat::HexLine { address_unit } => output.format_hexline(*address_unit),
+
             OutputFormat::Mif => output.format_mif(),
             OutputFormat::IntelHex { address_unit } => output.format_intelhex(*address_unit),
+            OutputFormat::Coe { address_unit } => output.format_coe(*address_unit),
 
             OutputFormat::List(opts) => output.format_list(opts),
 
@@ -644,6 +759,9 @@ pub fn format_output(
             OutputFormat::DecC => output.format_c_array(10),
             OutputFormat::HexC => output.format_c_array(16),
 
+            OutputFormat::BinVhdl { address_unit } => output.format_vhdl_b_array(*address_unit),
+            OutputFormat::HexVhdl { address_unit } => output.format_vhdl_h_array(*address_unit),
+
             OutputFormat::LogiSim8 => output.format_logisim(8),
             OutputFormat::LogiSim16 => output.format_logisim(16),
 
@@ -655,6 +773,38 @@ pub fn format_output(
     };
 
     text.bytes().collect()
+}
+
+pub fn parse_output(output: String, format: &OutputFormat) -> BitVec {
+    match format {
+        // OutputFormat::Binary => BitVec::parse_binary(output, wordsize),
+        // OutputFormat::Annotated { base, group } => BitVec::parse_annotated(output, *base, *group),
+        // OutputFormat::TCGame { base, group } => BitVec::parse_tcgame(output, *base, *group),
+        // OutputFormat::BinStr => BitVec::parse_binstr(output, wordsize),
+        // OutputFormat::HexStr => BitVec::parse_hexstr(output, wordsize),
+        // OutputFormat::BinDump => BitVec::parse_bindump(output),
+        // OutputFormat::HexDump => BitVec::parse_hexdump(output),
+        OutputFormat::BinLine { address_unit } => BitVec::parse_binline(output, *address_unit),
+        OutputFormat::HexLine { address_unit } => BitVec::parse_hexline(output, *address_unit),
+        // OutputFormat::Mif => BitVec::parse_mif(output),
+        // OutputFormat::IntelHex { address_unit } => BitVec::parse_intelhex(output, *address_unit),
+        // OutputFormat::Coe { address_unit } => BitVec::parse_coe(output, *address_unit),
+        // OutputFormat::List(opts) => BitVec::parse_list(output, opts),
+        // OutputFormat::DecComma => BitVec::parse_separator(output, 10, ", "),
+        // OutputFormat::HexComma => BitVec::parse_separator(output, 16, ", "),
+        // OutputFormat::DecSpace => BitVec::parse_separator(output, 10, " "),
+        // OutputFormat::HexSpace => BitVec::parse_separator(output, 16, " "),
+        // OutputFormat::DecC => BitVec::parse_c_array(output, 10),
+        // OutputFormat::HexC => BitVec::parse_c_array(output, 16),
+        // OutputFormat::BinVhdl { address_unit } => BitVec::parse_vhdl_b_array(output, *address_unit),
+        // OutputFormat::HexVhdl { address_unit } => BitVec::parse_vhdl_h_array(output, *address_unit),
+        // OutputFormat::LogiSim8 => BitVec::parse_logisim(output, 8),
+        // OutputFormat::LogiSim16 => BitVec::parse_logisim(output, 16),
+        // OutputFormat::AddressSpan => BitVec::parse_addrspan(output, fileserver),
+        _ => {
+            panic!("cannot parse output format");
+        }
+    }
 }
 
 fn print_usage(use_colors: bool) {

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 
 
-<html>
+<html lang="en">
 
 	<head>
 		<title>customasm Web</title>
 		<meta charset="utf-8">
-		<link rel="stylesheet" href="codemirror/codemirror.css">
+		<link rel="stylesheet" href="./codemirror/codemirror.css">
 	</head>
 	
 	
@@ -79,6 +79,21 @@
 			align-self: center;
 			justify-self: center;
 		}
+        
+        button.a
+		{
+			background: none!important;
+			border: none;
+			padding: 0!important;
+			font-family: inherit;
+			color: blue;
+			cursor: pointer;
+		}
+		
+		button.a:hover 
+		{
+			text-decoration: underline;
+		}
 	</style>
 
 
@@ -100,8 +115,12 @@
 					<option value="hexdump">Hex Dump</option>
 					<option value="bindump">Bin Dump</option>
 					<option value="hexstr">Hex String</option>
+					<option value="hexline">Hex Line by Line</option>
 					<option value="binstr">Bin String</option>
+					<option value="binline">Bin Line by Line</option>
+					<option value="coe">COE</option>
 					<option value="mif">MIF</option>
+					<option value="mifbin">MIF BIN</option>
 					<option value="intelhex">Intel HEX</option>
 					<option value="deccomma">Comma-separated Dec</option>
 					<option value="hexcomma">Comma-separated Hex</option>
@@ -109,6 +128,8 @@
 					<option value="hexspace">Space-separated Hex</option>
 					<option value="decc">C Dec Array</option>
 					<option value="hexc">C Hex Array</option>
+					<option value="binvhdl">VHDL Bin Array</option>
+					<option value="hexvhdl">VHDL Hex Array</option>
 					<option value="logisim8">LogiSim 8-bit</option>
 					<option value="logisim16">LogiSim 16-bit</option>
 					<option value="addrspan">Address-Span</option>
@@ -124,9 +145,11 @@
 			</div>
 		</div>
 		
-		<script src="main.js"></script>
-		<script src="codemirror/codemirror.js"></script>
-		<script src="codemirror/z80.js"></script>
+		<script src="./default_text_override.js" always-keep></script>
+		<script src="./default_text.js"></script>
+		<script src="./main.js"></script>
+		<script src="./codemirror/codemirror.js"></script>
+		<script src="./codemirror/z80.js"></script>
 	</body>
 
 </html>

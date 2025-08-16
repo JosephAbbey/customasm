@@ -2,10 +2,13 @@
 name = "customasm"
 version = "0.13.11"
 edition = "2021"
-authors = ["hlorenzi <https://hlorenzi.com>"]
-description = "An assembler for custom, user-defined instruction sets!"
-homepage = "https://github.com/hlorenzi/customasm"
-repository = "https://github.com/hlorenzi/customasm"
+authors = [
+  "hlorenzi <https://hlorenzi.com>",
+  "josephabbey <https://josephabbey.dev>",
+]
+description = "An assembler/disassembler for custom, user-defined instruction sets!"
+homepage = "https://github.com/JosephAbbey/customasm"
+repository = "https://github.com/JosephAbbey/customasm"
 readme = "README.md"
 license = "Apache-2.0"
 keywords = ["asm", "assembler", "assembly", "custom"]

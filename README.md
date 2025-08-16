@@ -2,8 +2,7 @@
 `customasm` is an assembler that allows you to provide your own **custom
 instruction sets** to assemble your source files! 
 It can be useful, for example, if you're trying to test the bytecode of a new virtual machine,
-or if you're eager to write programs for that new microprocessor architecture 
-you just implemented in an FPGA chip!
+or if you're eager to write programs for that new microprocessor architecture you just implemented in an FPGA chip!
 
 [![crates.io][badge-cratesio-img]][badge-cratesio-url]
 [![Latest Release][badge-latest-img]][badge-latest-url]
@@ -14,10 +13,8 @@ you just implemented in an FPGA chip!
 
 [badge-cratesio-img]: https://img.shields.io/crates/v/customasm
 [badge-cratesio-url]: https://crates.io/crates/customasm
-
 [badge-latest-img]: https://img.shields.io/github/v/release/hlorenzi/customasm
 [badge-latest-url]: https://github.com/hlorenzi/customasm/releases
-
 [badge-downloads-img]: https://img.shields.io/github/downloads/hlorenzi/customasm/total
 [badge-downloads-url]: https://github.com/hlorenzi/customasm/releases
 
@@ -75,12 +72,12 @@ multiply3x4:
     load r1, 0
     load r2, 3
     load r3, 4
-    
+
     .loop:
         add r1, r2
         sub r3, 1
         jnz .loop
-    
+
     ret
 ```
 

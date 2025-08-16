@@ -1,4 +1,6 @@
-use crate::*;
+use core::num;
+
+use crate::{diagn::Span, *};
 
 pub mod parser;
 pub use parser::{
@@ -233,4 +235,289 @@ fn check_unused_defines(
         false => Ok(()),
         true => Err(()),
     }
+}
+
+pub enum NumberFormat {
+    Hex,
+    Dec,
+    Bin,
+}
+
+pub fn parse_number_format(report: &mut diagn::Report, input: &str) -> Result<NumberFormat, ()> {
+    match input {
+        "hex" => Ok(NumberFormat::Hex),
+        "dec" => Ok(NumberFormat::Dec),
+        "bin" => Ok(NumberFormat::Bin),
+        _ => {
+            report.error(format!("unknown number format: {}", input));
+            Err(())
+        }
+    }
+}
+
+fn check_rule_disassembly(
+    report: &mut diagn::Report,
+    number_format: &asm::NumberFormat,
+    ruledefs: &asm::defs::DefList<asm::defs::Ruledef>,
+    rule: &asm::Rule,
+    index: &mut usize,
+    parameters: &mut Vec<String>,
+    bitvec: &util::BitVec,
+    production: &expr::Expr,
+) -> Result<bool, ()> {
+    match production {
+        expr::Expr::Literal(_, expr::Value::Integer(value)) => {
+            for i in (0usize..value.size.ok_or_else(|| ())?).rev() {
+                if value.get_bit(i) != bitvec.read_bit(*index) {
+                    return Ok(false);
+                }
+                *index += 1;
+            }
+            Ok(true)
+        }
+        expr::Expr::Literal(span, _) => {
+            report.error_span("unsupported literal.", *span);
+            Err(())
+        }
+        expr::Expr::Variable(_, hierarchy_level, ref hierarchy)
+            if *hierarchy_level == 0 && hierarchy.len() == 1 =>
+        {
+            let p = rule
+                .parameters
+                .iter()
+                .position(|p| p.name == hierarchy[0])
+                .ok_or(())?;
+            match rule.parameters[p].typ {
+                asm::RuleParameterType::Integer(size)
+                | asm::RuleParameterType::Signed(size)
+                | asm::RuleParameterType::Unsigned(size) => {
+                    parameters[p] = match number_format {
+                        NumberFormat::Hex => {
+                            "0x".to_string()
+                                + &bitvec
+                                    .slice(*index, {
+                                        *index += size;
+                                        *index
+                                    })
+                                    .format_hexstr()
+                        }
+                        NumberFormat::Bin => {
+                            let mut a = "".to_string();
+                            for _ in 0..size {
+                                a += if bitvec.read_bit(*index) { "1" } else { "0" };
+                                *index += 1;
+                            }
+                            "0b".to_string() + &a
+                        }
+                        NumberFormat::Dec => {
+                            *index += size;
+                            let mut n: u32 = 0;
+                            let mut a: u32 = 1;
+                            for i in 1..(size + 1) {
+                                n += if bitvec.read_bit(*index - i) { a } else { 0 };
+                                a *= 2;
+                            }
+                            n.to_string()
+                        }
+                    };
+                    Ok(true)
+                }
+                asm::RuleParameterType::RuledefRef(rs) => {
+                    'outer: {
+                        for r in ruledefs.get(rs).rules.iter() {
+                            let mut i = *index;
+                            let mut ps: Vec<String> = vec!["".to_string(); r.parameters.len()];
+                            if check_rule_disassembly(
+                                report,
+                                number_format,
+                                ruledefs,
+                                &r,
+                                &mut i,
+                                &mut ps,
+                                bitvec,
+                                &r.expr,
+                            )? {
+                                // dbg!("{} {:?}", i, parameters);
+                                let mut instruction = String::new();
+                                for i in &r.pattern {
+                                    match i {
+                                        asm::RulePatternPart::Whitespace => instruction.push(' '),
+                                        asm::RulePatternPart::Exact(c) => instruction.push(*c),
+                                        asm::RulePatternPart::ParameterIndex(a) => {
+                                            instruction += &ps[*a]
+                                        }
+                                    }
+                                }
+                                parameters[p] = instruction;
+                                *index = i;
+                                break 'outer;
+                            }
+                        }
+                        return Ok(false);
+                    }
+                    Ok(true)
+                }
+                asm::RuleParameterType::Unspecified => {
+                    report.error("specify all types on variables.");
+                    Err(())
+                }
+            }
+        }
+        expr::Expr::Variable(span, _, _) => {
+            report.error_span("unsupported binary pattern.", *span);
+            Err(())
+        }
+        expr::Expr::UnaryOp(span, _, _, _) => {
+            report.error_span("unsupported unary operator.", *span);
+            Err(())
+        }
+        expr::Expr::BinaryOp(_, _, expr::BinaryOp::Concat, ref lhs, ref rhs) => {
+            Ok(check_rule_disassembly(
+                report,
+                number_format,
+                ruledefs,
+                rule,
+                index,
+                parameters,
+                bitvec,
+                lhs,
+            )? && check_rule_disassembly(
+                report,
+                number_format,
+                ruledefs,
+                rule,
+                index,
+                parameters,
+                bitvec,
+                rhs,
+            )?)
+        }
+        expr::Expr::BinaryOp(span, _, _, _, _) => {
+            report.error_span("unsupported binary operator.", *span);
+            Err(())
+        }
+        expr::Expr::TernaryOp(span, _, _, _) => {
+            report.error_span("unsupported ternary operator.", *span);
+            Err(())
+        }
+        //? This seems wrong
+        expr::Expr::Slice(span, slice_span, leftmost, rightmost, inner) => check_rule_disassembly(
+            report,
+            number_format,
+            ruledefs,
+            rule,
+            index,
+            parameters,
+            bitvec,
+            inner,
+        ),
+        expr::Expr::SliceShort(span, size_span, size, inner) => check_rule_disassembly(
+            report,
+            number_format,
+            ruledefs,
+            rule,
+            index,
+            parameters,
+            bitvec,
+            inner,
+        ),
+        expr::Expr::Block(_, exprs) => {
+            for expr in exprs {
+                if !check_rule_disassembly(
+                    report,
+                    number_format,
+                    ruledefs,
+                    rule,
+                    index,
+                    parameters,
+                    bitvec,
+                    &Box::new(expr.clone()),
+                )? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        expr::Expr::Call(span, func, _) => match &**func {
+            expr::Expr::Variable(_, 0, ref hierarchy) if matches!(hierarchy.as_slice(), [name] if name == "assert") => {
+                Ok(true)
+            }
+            _ => {
+                report.error_span("unsupported call.", *span);
+                Err(())
+            }
+        },
+        expr::Expr::Asm(span, _) => {
+            report.note_span(
+                "ignoring asm rule so output may be more verbose, but still functional.",
+                *span,
+            );
+            Ok(false)
+        }
+    }
+}
+
+pub struct DisassemblyOutput {
+    pub assembly: String,
+}
+
+pub fn disassemble(
+    report: &mut diagn::Report,
+    number_format: &asm::NumberFormat,
+    ruledefs: &asm::defs::DefList<asm::defs::Ruledef>,
+    bitvec: &util::BitVec,
+) -> Result<DisassemblyOutput, ()> {
+    report.warning("Disassembly is not stable, there may be issues and many features have not yet been implemented.");
+
+    // dbg!(self.rulesets);
+    // dbg!(self.active_rulesets);
+    let mut assembly = "disassembled:\n".to_string();
+    let mut g_index = 0usize;
+
+    while g_index < bitvec.len() {
+        'outer: {
+            for rs_option in &ruledefs.defs {
+                if let Some(rs) = rs_option {
+                    if rs.is_subruledef {
+                        continue;
+                    }
+                    for rule in &rs.rules {
+                        let mut index = g_index;
+                        let mut parameters: Vec<String> =
+                            vec!["".to_string(); rule.parameters.len()];
+                        if check_rule_disassembly(
+                            report,
+                            number_format,
+                            ruledefs,
+                            &rule,
+                            &mut index,
+                            &mut parameters,
+                            bitvec,
+                            &rule.expr,
+                        )? {
+                            // dbg!(index, parameters);
+                            let mut instruction = String::new();
+                            for i in &rule.pattern {
+                                match i {
+                                    asm::RulePatternPart::Whitespace => instruction.push(' '),
+                                    asm::RulePatternPart::Exact(c) => instruction.push(*c),
+                                    asm::RulePatternPart::ParameterIndex(p) => {
+                                        instruction += &parameters[*p]
+                                    }
+                                }
+                            }
+                            // dbg!(index, instruction.clone());
+                            assembly += "    ";
+                            assembly += &instruction;
+                            assembly += "\n";
+                            g_index = index;
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+            report.error("cannot disassemble instruction");
+        }
+    }
+    Ok(DisassemblyOutput { assembly })
 }

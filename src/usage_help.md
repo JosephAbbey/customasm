@@ -81,6 +81,10 @@ Examples:
     Memory-dump style encoded as binary digits.
 * `hexdump`  
     Memory-dump style encoded as hexadecimal digits.
+* `binline,addr_unit:8`  
+    Memory-dump style encoded as binary digits, one line per word.
+* `hexline,addr_unit:8`  
+    Memory-dump style encoded as hexadecimal digits, one line per word.
 
 * `mif`  
     Memory Initialization File format.
@@ -115,6 +119,11 @@ Examples:
 * `hexc`  
     Bytes encoded as hexadecimal literals
     wrapped in a C-style declaration.
+
+* `binvhdl,addr_unit:8`  
+    For use with the VHDL hardware description language.
+* `hexvhdl,addr_unit:8`  
+    For use with the VHDL hardware description language.
 
 * `logisim8`  
     For use with the Logisim logic simulator program.

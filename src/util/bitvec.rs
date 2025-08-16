@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BitVec {
     data: util::BigInt,
     len: usize,
@@ -38,8 +38,24 @@ impl BitVec {
         }
     }
 
+    pub fn write_bitvec(&mut self, index: usize, bitvec: &util::BitVec) {
+        for i in 0..bitvec.len() {
+            self.write_bit(index + i, bitvec.read_bit(i));
+        }
+        if index + bitvec.len() > self.len {
+            self.len = index + bitvec.len();
+        }
+    }
+
     pub fn read_bit(&self, index: usize) -> bool {
         self.data.get_bit(index)
+    }
+
+    pub fn slice(&self, start: usize, end: usize) -> Self {
+        let mut result = Self::new();
+        result.data = self.data.slice(end, start);
+        result.len = end - start;
+        result
     }
 
     pub fn len(&self) -> usize {

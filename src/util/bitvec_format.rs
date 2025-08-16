@@ -1,5 +1,6 @@
 use crate::*;
 
+#[derive(Debug, Clone)]
 pub struct FormatListOptions {
     pub base: usize,
     pub digits_per_group: usize,
@@ -29,12 +30,119 @@ impl util::BitVec {
         result
     }
 
+    pub fn parse_binary(bytes: Vec<u8>, wordsize: usize) -> Self {
+        let mut result = Self::new();
+        let mut index = 0;
+        for byte in bytes.clone() {
+            let mut n = util::BigInt::from(byte);
+            n.size = Some(8);
+            result.write_bigint(index, &n);
+            index += 8;
+        }
+
+        let bits = bytes.len() * 8;
+        result = result.slice(0, bits - bits % wordsize);
+
+        result
+    }
+
     pub fn format_binstr(&self) -> String {
         self.format_str(1)
     }
 
+    pub fn parse_binstr(string: String, wordsize: usize) -> Self {
+        Self::parse_str(string, 1, wordsize)
+    }
+
+    pub fn format_binline(&self, wordsize: usize) -> String {
+        self.format_str(1)
+            .chars()
+            .enumerate()
+            .flat_map(|(i, c)| {
+                if i != 0 && i % wordsize == 0 {
+                    Some('\n')
+                } else {
+                    None
+                }
+                .into_iter()
+                .chain(std::iter::once(c))
+            })
+            .collect::<String>()
+    }
+
+    pub fn parse_binline(string: String, wordsize: usize) -> Self {
+        Self::parse_str(string.replace("\n", ""), 1, wordsize)
+    }
+
+    pub fn format_coe(&self, wordsize: usize) -> String {
+        "memory_initialization_radix=2;\nmemory_initialization_vector=\n".to_owned()
+            + &self
+                .format_str(1)
+                .chars()
+                .enumerate()
+                .flat_map(|(i, c)| {
+                    if i != 0 && i % wordsize == 0 {
+                        vec![',', '\n']
+                    } else {
+                        vec![]
+                    }
+                    .into_iter()
+                    .chain(std::iter::once(c))
+                })
+                .collect::<String>()
+            + ";"
+    }
+
     pub fn format_hexstr(&self) -> String {
         self.format_str(4)
+    }
+
+    pub fn parse_hexstr(string: String, wordsize: usize) -> Self {
+        Self::parse_str(string, 4, wordsize)
+    }
+
+    pub fn format_hexline(&self, wordsize: usize) -> String {
+        let mut result = String::new();
+
+        let mut index = 0;
+        let mut word = 0;
+        while index < self.len() {
+            let mut digit: u8 = 0;
+            for _ in 0..4 {
+                digit <<= 1;
+                digit |= if self.read_bit(index) { 1 } else { 0 };
+                index += 1;
+                word += 1;
+                if word == wordsize {
+                    break;
+                }
+            }
+
+            let c = if digit < 10 {
+                ('0' as u8 + digit) as char
+            } else {
+                ('a' as u8 + digit - 10) as char
+            };
+
+            result.push(c);
+            if word == wordsize {
+                result.push('\n');
+                word = 0;
+            }
+        }
+
+        result
+    }
+
+    pub fn parse_hexline(string: String, wordsize: usize) -> Self {
+        string
+            .split("\n")
+            .map(|s| Self::parse_hexstr(s.to_string(), wordsize))
+            .fold(&mut Self::new(), |acc, e| {
+                acc.write_bitvec(acc.len(), &e);
+                acc
+            })
+            .clone()
     }
 
     pub fn format_str(&self, bits_per_digit: usize) -> String {
@@ -57,6 +165,30 @@ impl util::BitVec {
 
             result.push(c);
         }
+
+        result
+    }
+
+    pub fn parse_str(string: String, bits_per_digit: usize, wordsize: usize) -> Self {
+        let mut result = Self::new();
+        let mut index = 0;
+        for c in string.as_bytes() {
+            let byte = c - '0' as u8;
+
+            let digit = if byte < 10 {
+                byte
+            } else {
+                c + '0' as u8 - 'a' as u8
+            };
+
+            let mut n = util::BigInt::from(digit);
+            n.size = Some(bits_per_digit);
+            result.write_bigint(index, &n);
+            index += bits_per_digit;
+        }
+
+        let bits = string.len() * bits_per_digit;
+        result = result.slice(0, bits - bits % wordsize - 1);
 
         result
     }
@@ -379,6 +511,44 @@ impl util::BitVec {
 
         result.push_str("\n};");
         result
+    }
+
+    pub fn format_vhdl_b_array(&self, wordsize: usize) -> String {
+        "(\n  \"".to_owned()
+            + &self
+                .format_str(1)
+                .chars()
+                .enumerate()
+                .flat_map(|(i, c)| {
+                    if i != 0 && i % wordsize == 0 {
+                        vec!['"', ',', '\n', ' ', ' ', '"']
+                    } else {
+                        vec![]
+                    }
+                    .into_iter()
+                    .chain(std::iter::once(c))
+                })
+                .collect::<String>()
+            + "\"\n)"
+    }
+
+    pub fn format_vhdl_h_array(&self, wordsize: usize) -> String {
+        "(\n  x\"".to_owned()
+            + &self
+                .format_str(4)
+                .chars()
+                .enumerate()
+                .flat_map(|(i, c)| {
+                    if i != 0 && i % (wordsize / 4) == 0 {
+                        vec!['"', ',', '\n', ' ', ' ', 'x', '"']
+                    } else {
+                        vec![]
+                    }
+                    .into_iter()
+                    .chain(std::iter::once(c))
+                })
+                .collect::<String>()
+            + "\"\n)"
     }
 
     // From: https://github.com/milanvidakovic/customasm/blob/master/src/asm/binary_output.rs#L84
