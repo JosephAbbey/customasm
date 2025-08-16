@@ -3,7 +3,3 @@
 /.pkgtemp/
 /.vscode/
 /Cargo.lock
-/test.asm
-/web/customasm.html
-/web/customasm.wasm
-/test_output_mismatch
