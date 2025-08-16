@@ -1,5 +1,6 @@
 let g_wasm = null
 let g_codeEditor = null
+let g_initialText = ""
 
 //? COLLECTION FUNCTION 'WASM' (BUFFER -> STRING): `(w) => "new Promise(r => r(new Uint8Array(" + JSON.stringify([...w]) + ")))"`
 
@@ -12,8 +13,8 @@ function main()
 	window.onkeydown = onKeyDown
 	window.onbeforeunload = onBeforeUnload
 	
-	//? COLLECTION FROM "./customasmlib.wasm" AS (BUFFER) WITH 'WASM' [
-	fetch('./customasmlib.wasm').then((r) => r.arrayBuffer())
+	//? COLLECTION FROM "./customasm.wasm" AS (BUFFER) WITH 'WASM' [
+	fetch('./customasm.wasm').then((r) => r.arrayBuffer())
 	//? ]
 		.then(r => WebAssembly.instantiate(r))
 		.then(wasm =>
@@ -65,9 +66,14 @@ function onResize()
 }
 
 
-function onBeforeUnload()
+function onBeforeUnload(ev)
 {
-	return "Your work will be lost if you close the page."
+	if (g_codeEditor.getValue() != g_initialText)
+    {
+        ev.preventDefault()
+        ev.returnValue = "Your work will be lost if you close the page."
+        return ev.returnValue
+    }
 }
 
 
@@ -89,13 +95,16 @@ function assemble()
 	if (g_wasm == null)
 		return
 	
-	let format = document.getElementById("selectFormat").selectedIndex
-	
-	let asmPtr = makeRustString(g_codeEditor.getValue())
+	let formatPtr = makeRustString(
+		document.getElementById("selectFormat").value)
+
+	let asmPtr = makeRustString(
+		g_codeEditor.getValue())
+
 	let outputPtr = null
 	try
 	{
-		outputPtr = g_wasm.instance.exports.wasm_assemble(format, asmPtr)
+		outputPtr = g_wasm.instance.exports.wasm_assemble(formatPtr, asmPtr)
 	}
 	catch (e)
 	{
@@ -108,6 +117,8 @@ function assemble()
 	dropRustString(asmPtr)
 	dropRustString(outputPtr)
 	
+	output = output.replace(/\</g, "&lt;")
+	output = output.replace(/\>/g, "&gt;")
 	output = output.replace(/\n/g, "<br>")
 	output = output.replace(
         / --> asm:\x1b\[0m\x1b\[90m(\d+):(\d+)/g,

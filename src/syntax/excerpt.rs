@@ -1,17 +1,25 @@
-use crate::diagn::{RcReport, Span};
 use crate::*;
-use num_bigint;
 
 pub fn excerpt_as_string_contents(
-    report: RcReport,
+    report: &mut diagn::Report,
+    span: diagn::Span,
     excerpt: &str,
-    span: &Span,
 ) -> Result<String, ()> {
     assert!(excerpt.len() >= 2);
 
-    let mut chars = excerpt[1..(excerpt.len() - 1)].chars().peekable();
+    let without_quotes = &excerpt[1..(excerpt.len() - 1)];
 
+    unescape_string(report, span, without_quotes)
+}
+
+pub fn unescape_string(
+    report: &mut diagn::Report,
+    span: diagn::Span,
+    original_str: &str,
+) -> Result<String, ()> {
     let mut result = String::new();
+
+    let mut chars = original_str.chars().peekable();
 
     while let Some(c) = chars.peek().map(|c| *c) {
         chars.next();
@@ -95,7 +103,11 @@ pub fn excerpt_as_string_contents(
     Ok(result)
 }
 
-pub fn excerpt_as_usize(report: Option<RcReport>, excerpt: &str, span: &Span) -> Result<usize, ()> {
+pub fn excerpt_as_usize(
+    report: &mut diagn::Report,
+    span: diagn::Span,
+    excerpt: &str,
+) -> Result<usize, ()> {
     let chars: Vec<char> = excerpt.chars().collect();
     assert!(chars.len() >= 1);
 
@@ -113,9 +125,8 @@ pub fn excerpt_as_usize(report: Option<RcReport>, excerpt: &str, span: &Span) ->
         let digit = match c.to_digit(radix as u32) {
             Some(d) => d,
             None => {
-                if let Some(report) = report {
-                    report.error_span("invalid digits", span);
-                }
+                report.error_span("invalid digits", span);
+
                 return Err(());
             }
         };
@@ -123,9 +134,8 @@ pub fn excerpt_as_usize(report: Option<RcReport>, excerpt: &str, span: &Span) ->
         value = match value.checked_mul(radix) {
             Some(v) => v,
             None => {
-                if let Some(report) = report {
-                    report.error_span("value is too large", span);
-                }
+                report.error_span("value is too large", span);
+
                 return Err(());
             }
         };
@@ -133,9 +143,8 @@ pub fn excerpt_as_usize(report: Option<RcReport>, excerpt: &str, span: &Span) ->
         value = match value.checked_add(digit as usize) {
             Some(v) => v,
             None => {
-                if let Some(report) = report {
-                    report.error_span("value is too large", span);
-                }
+                report.error_span("value is too large", span);
+
                 return Err(());
             }
         };
@@ -145,12 +154,10 @@ pub fn excerpt_as_usize(report: Option<RcReport>, excerpt: &str, span: &Span) ->
 }
 
 pub fn excerpt_as_bigint(
-    report: Option<RcReport>,
+    report: Option<&mut diagn::Report>,
+    span: diagn::Span,
     excerpt: &str,
-    span: &Span,
 ) -> Result<util::BigInt, ()> {
-    use num_traits::Zero;
-
     let chars: Vec<char> = excerpt.chars().collect();
     assert!(chars.len() >= 1);
 
@@ -158,7 +165,7 @@ pub fn excerpt_as_bigint(
 
     let mut digit_num = 0;
 
-    let mut value = num_bigint::BigInt::zero();
+    let mut value = num_bigint::BigInt::from(0);
     while index < chars.len() {
         let c = chars[index];
         index += 1;
@@ -173,6 +180,7 @@ pub fn excerpt_as_bigint(
                 if let Some(report) = report {
                     report.error_span("invalid digits", span);
                 }
+
                 return Err(());
             }
         };
@@ -187,6 +195,7 @@ pub fn excerpt_as_bigint(
         if let Some(report) = report {
             report.error_span("invalid value", span);
         }
+
         return Err(());
     }
 
@@ -205,52 +214,6 @@ pub fn excerpt_as_bigint(
     Ok(util::BigInt::new(value, size))
 }
 
-fn parse_width(
-    report: RcReport,
-    chars: &[char],
-    span: &Span,
-) -> Result<(Option<usize>, usize), ()> {
-    if !chars.iter().any(|c| *c == '\'') {
-        return Ok((None, 0));
-    }
-
-    let mut width: usize = 0;
-    let mut index = 0;
-    loop {
-        let c = chars[index];
-        index += 1;
-
-        if c == '_' {
-            continue;
-        }
-
-        if c == '\'' {
-            break;
-        }
-
-        let digit = match c.to_digit(10) {
-            Some(d) => d,
-            None => return Err(report.error_span("invalid digits in width specifier", span)),
-        };
-
-        width = match width.checked_mul(10) {
-            Some(v) => v,
-            None => return Err(report.error_span("width specifier is too large", span)),
-        };
-
-        width = match width.checked_add(digit as usize) {
-            Some(v) => v,
-            None => return Err(report.error_span("width specifier is too large", span)),
-        };
-    }
-
-    if width == 0 {
-        return Err(report.error_span("invalid width specifier", span));
-    }
-
-    Ok((Some(width), index))
-}
-
 fn parse_radix(chars: &[char], index: usize) -> (usize, usize) {
     if chars[index] == '0' && index + 1 < chars.len() {
         match chars[index + 1] {
@@ -260,6 +223,10 @@ fn parse_radix(chars: &[char], index: usize) -> (usize, usize) {
             _ => (10, index),
         }
     } else {
-        (10, index)
+        match chars[0] {
+            '%' => (2, index + 1),
+            '$' => (16, index + 1),
+            _ => (10, index),
+        }
     }
 }

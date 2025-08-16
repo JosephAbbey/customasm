@@ -68,19 +68,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@master
 
+      - name: Install Mingw for Windows cross-compilation
+        run: sudo apt-get install -y gcc-mingw-w64-x86-64
+
       - name: Install latest Rust stable
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
-          target: x86_64-pc-windows-gnu
+            toolchain: stable
+            targets: x86_64-pc-windows-gnu
+
+      - name: Run tests
+        run: cargo test --release --verbose
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --release --verbose --target=x86_64-pc-windows-gnu
+        run: cargo build --release --verbose --target=x86_64-pc-windows-gnu
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3

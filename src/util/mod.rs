@@ -1,18 +1,39 @@
-mod bigint;
-mod bitvec;
-mod bitvec_format;
 mod char_counter;
-mod filename;
-mod fileserver;
-mod windows_console;
-
-pub use self::bigint::BigInt;
-pub use self::bitvec::BitVec;
-pub use self::bitvec::BitVecSpan;
 pub use self::char_counter::CharCounter;
-pub use self::filename::filename_navigate;
-pub use self::filename::filename_validate;
-pub use self::fileserver::FileServer;
-pub use self::fileserver::FileServerMock;
-pub use self::fileserver::FileServerReal;
+
+mod bigint;
+pub use self::bigint::BigInt;
+
+mod bitvec;
+pub use self::bitvec::{BitVec, BitVecSpan};
+
+mod bitvec_format;
+pub use self::bitvec_format::FormatListOptions;
+
+mod overlap_checker;
+pub use self::overlap_checker::OverlapChecker;
+
+mod fileserver;
+pub use self::fileserver::{
+    FileServer, FileServerHandle, FileServerMock, FileServerReal,
+    FILESERVER_MOCK_WRITE_FILENAME_SUFFIX,
+};
+
+mod file_navigation;
+pub use self::file_navigation::{
+    filename_navigate, filename_validate_relative, is_std_path, STD_PATH_PREFIX,
+};
+
+mod windows_console;
 pub use self::windows_console::enable_windows_ansi_support;
+
+mod string_styler;
+pub use self::string_styler::StringStyler;
+
+mod symbol_manager;
+pub use self::symbol_manager::{SymbolContext, SymbolDecl, SymbolKind, SymbolManager};
+
+mod symbol_format;
+
+mod item_ref;
+pub use self::item_ref::ItemRef;

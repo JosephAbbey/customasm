@@ -1,21 +1,25 @@
-pub struct CharCounter<'s> {
-    chars: &'s [char],
+pub struct CharCounter<'a> {
+    src: &'a str,
+    chars: Vec<char>,
 }
 
-impl<'s> CharCounter<'s> {
-    pub fn new(chars: &'s [char]) -> CharCounter<'s> {
-        CharCounter { chars: chars }
+impl<'a> CharCounter<'a> {
+    pub fn new(src: &'a str) -> CharCounter<'a> {
+        CharCounter {
+            src,
+            chars: src.chars().collect(),
+        }
     }
 
-    pub fn get_excerpt(&self, start: usize, end: usize) -> &[char] {
-        &self.chars[start..end]
+    pub fn get_excerpt(&self, start: usize, end: usize) -> &str {
+        self.src.get(start..end).unwrap()
     }
 
     pub fn get_line_count(&self) -> usize {
         let mut lines = 1;
 
-        for &c in self.chars {
-            if c == '\n' {
+        for c in &self.chars {
+            if *c == '\n' {
                 lines += 1;
             }
         }
@@ -63,6 +67,6 @@ impl<'s> CharCounter<'s> {
             }
         }
 
-        (line_begin, line_end)
+        (line_begin.try_into().unwrap(), line_end.try_into().unwrap())
     }
 }

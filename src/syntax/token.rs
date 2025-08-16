@@ -1,14 +1,12 @@
-use crate::diagn::{RcReport, Span};
-use std::rc::Rc;
+use crate::*;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Token {
-    pub span: Span,
+    pub span: diagn::Span,
     pub kind: TokenKind,
-    pub excerpt: Option<String>,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum TokenKind {
     Error,
     Whitespace,
@@ -18,6 +16,8 @@ pub enum TokenKind {
     Number,
     String,
     KeywordAsm,
+    KeywordTrue,
+    KeywordFalse,
     ParenOpen,
     ParenClose,
     BracketOpen,
@@ -46,36 +46,30 @@ pub enum TokenKind {
     Tilde,
     Grave,
     At,
-    AmpersandAmpersand,
-    VerticalBarVerticalBar,
-    EqualEqual,
+    DoubleAmpersand,
+    DoubleVerticalBar,
+    DoubleEqual,
     ExclamationEqual,
     LessThan,
-    LessThanLessThan,
+    DoubleLessThan,
     LessThanEqual,
     GreaterThan,
-    GreaterThanGreaterThan,
-    GreaterThanGreaterThanGreaterThan,
+    DoubleGreaterThan,
+    TripleGreaterThan,
     GreaterThanEqual,
 }
 
 impl TokenKind {
-    fn needs_excerpt(self) -> bool {
-        self == TokenKind::Identifier || self == TokenKind::Number || self == TokenKind::String
-    }
-
-    pub fn ignorable(self) -> bool {
+    pub fn is_ignorable(self) -> bool {
         self == TokenKind::Whitespace || self == TokenKind::Comment || self == TokenKind::LineBreak
-    }
-
-    pub fn ignorable_ws(self) -> bool {
-        self == TokenKind::Comment || self == TokenKind::LineBreak
     }
 
     pub fn is_allowed_pattern_token(self) -> bool {
         self == TokenKind::Identifier
             || self == TokenKind::Number
             || self == TokenKind::KeywordAsm
+            || self == TokenKind::KeywordTrue
+            || self == TokenKind::KeywordFalse
             || self == TokenKind::ParenOpen
             || self == TokenKind::ParenClose
             || self == TokenKind::BracketOpen
@@ -100,10 +94,6 @@ impl TokenKind {
             || self == TokenKind::GreaterThan
     }
 
-    pub fn is_allowed_after_pattern_parameter(self) -> bool {
-        self == TokenKind::ParenClose || self == TokenKind::BracketClose || self == TokenKind::Comma
-    }
-
     pub fn printable(self) -> &'static str {
         match self {
             TokenKind::Error => "error",
@@ -114,6 +104,8 @@ impl TokenKind {
             TokenKind::Number => "number",
             TokenKind::String => "string",
             TokenKind::KeywordAsm => "`asm` keyword",
+            TokenKind::KeywordTrue => "`true` keyword",
+            TokenKind::KeywordFalse => "`false` keyword",
             TokenKind::ParenOpen => "`(`",
             TokenKind::ParenClose => "`)`",
             TokenKind::BracketOpen => "`[`",
@@ -142,250 +134,231 @@ impl TokenKind {
             TokenKind::Tilde => "`~`",
             TokenKind::At => "`@`",
             TokenKind::Grave => "```",
-            TokenKind::AmpersandAmpersand => "`&&`",
-            TokenKind::VerticalBarVerticalBar => "`||`",
-            TokenKind::EqualEqual => "`==`",
+            TokenKind::DoubleAmpersand => "`&&`",
+            TokenKind::DoubleVerticalBar => "`||`",
+            TokenKind::DoubleEqual => "`==`",
             TokenKind::ExclamationEqual => "`!=`",
             TokenKind::LessThan => "`<`",
-            TokenKind::LessThanLessThan => "`<<`",
+            TokenKind::DoubleLessThan => "`<<`",
             TokenKind::LessThanEqual => "`<=`",
             TokenKind::GreaterThan => "`>`",
-            TokenKind::GreaterThanGreaterThan => "`>>`",
-            TokenKind::GreaterThanGreaterThanGreaterThan => "`>>>`",
+            TokenKind::DoubleGreaterThan => "`>>`",
+            TokenKind::TripleGreaterThan => "`>>>`",
             TokenKind::GreaterThanEqual => "`>=`",
         }
     }
-
-    pub fn printable_excerpt(self, excerpt: Option<&str>) -> String {
-        if self.needs_excerpt() {
-            format!("`{}`", excerpt.unwrap())
-        } else {
-            self.printable().to_string()
-        }
-    }
 }
 
-impl Token {
-    pub fn text(&self) -> &str {
-        match self.kind {
-            TokenKind::KeywordAsm => "asm",
-            TokenKind::ParenOpen => "(",
-            TokenKind::ParenClose => ")",
-            TokenKind::BracketOpen => "[",
-            TokenKind::BracketClose => "]",
-            TokenKind::BraceOpen => "{",
-            TokenKind::BraceClose => "}",
-            TokenKind::Dot => ".",
-            TokenKind::Comma => ",",
-            TokenKind::Colon => ":",
-            TokenKind::ColonColon => "::",
-            TokenKind::ArrowRight => "->",
-            TokenKind::ArrowLeft => "<-",
-            TokenKind::HeavyArrowRight => "=>",
-            TokenKind::Hash => "#",
-            TokenKind::Equal => "=",
-            TokenKind::Plus => "+",
-            TokenKind::Minus => "-",
-            TokenKind::Asterisk => "*",
-            TokenKind::Slash => "/",
-            TokenKind::Percent => "%",
-            TokenKind::Question => "?",
-            TokenKind::Exclamation => "!",
-            TokenKind::Ampersand => "&",
-            TokenKind::VerticalBar => "|",
-            TokenKind::Circumflex => "^",
-            TokenKind::Tilde => "~",
-            TokenKind::At => "@",
-            TokenKind::Grave => "`",
-            TokenKind::AmpersandAmpersand => "&&",
-            TokenKind::VerticalBarVerticalBar => "||",
-            TokenKind::EqualEqual => "==",
-            TokenKind::ExclamationEqual => "!=",
-            TokenKind::LessThan => "<",
-            TokenKind::LessThanLessThan => "<<",
-            TokenKind::LessThanEqual => "<=",
-            TokenKind::GreaterThan => ">",
-            TokenKind::GreaterThanGreaterThan => ">>",
-            TokenKind::GreaterThanGreaterThanGreaterThan => ">>>",
-            TokenKind::GreaterThanEqual => ">=",
-            _ => self.excerpt.as_ref().unwrap(),
-        }
-    }
-}
-
-pub fn tokenize<S>(report: RcReport, src_filename: S, src: &[char]) -> Result<Vec<Token>, ()>
-where
-    S: Into<String>,
-{
-    let filename = Rc::new(src_filename.into());
-    let mut tokens = Vec::new();
-    let mut index = 0;
-    let mut had_error = false;
-
-    while index < src.len() {
-        // Decide what are the next token's kind and length.
-        let (kind, length) = check_for_whitespace(&src[index..]).unwrap_or_else(|| {
-            check_for_comment(&src[index..]).unwrap_or_else(|| {
-                check_for_fixed(&src[index..]).unwrap_or_else(|| {
-                    check_for_identifier(&src[index..]).unwrap_or_else(|| {
-                        check_for_number(&src[index..]).unwrap_or_else(|| {
-                            check_for_string(&src[index..]).unwrap_or_else(|| (TokenKind::Error, 1))
-                        })
+pub fn decide_next_token(src: &str) -> (TokenKind, usize) {
+    check_for_whitespace(src).unwrap_or_else(|| {
+        check_for_comment(src).unwrap_or_else(|| {
+            check_for_number(src).unwrap_or_else(|| {
+                check_for_identifier(src).unwrap_or_else(|| {
+                    check_for_special(src).unwrap_or_else(|| {
+                        check_for_string(src).unwrap_or_else(|| (TokenKind::Error, 1))
                     })
                 })
             })
-        });
+        })
+    })
+}
 
-        let span = Span::new(filename.clone(), index, index + length);
+#[derive(Clone)]
+struct CharWalker<'a> {
+    src: &'a str,
+    char_indices: std::str::CharIndices<'a>,
+    current: char,
+    length: usize,
+}
 
-        // Get the source excerpt for variable tokens (e.g. identifiers).
-        let excerpt = match kind.needs_excerpt() {
-            true => Some(src[index..].iter().cloned().take(length).collect()),
-            false => None,
+impl<'a> CharWalker<'a> {
+    pub fn new(src: &'a str) -> CharWalker<'a> {
+        let mut walker = CharWalker {
+            src,
+            char_indices: src.char_indices(),
+            current: '\0',
+            length: 0,
         };
 
-        // Report unexpected characters.
-        if kind == TokenKind::Error {
-            report.error_span("unexpected character", &span);
-            had_error = true;
+        walker.advance();
+        walker
+    }
+
+    pub fn ended(&self) -> bool {
+        self.length >= self.src.len()
+    }
+
+    pub fn advance(&mut self) {
+        match self.char_indices.next() {
+            None => {
+                self.current = '\0';
+                self.length = self.src.len();
+            }
+            Some((index, c)) => {
+                self.current = c;
+                self.length = index;
+            }
+        }
+    }
+
+    pub fn consume_if(&mut self, fn_test: fn(char) -> bool) -> bool {
+        if fn_test(self.current) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn consume_char(&mut self, wanted: char) -> bool {
+        if self.current == wanted {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn consume_str(&mut self, wanted: &str) -> bool {
+        let mut cloned = self.clone();
+
+        for c in wanted.chars() {
+            if !cloned.consume_char(c) {
+                return false;
+            }
         }
 
-        // Add to the token list.
-        let token = Token {
-            span: span,
-            kind: kind,
-            excerpt: excerpt,
-        };
-
-        tokens.push(token);
-
-        index += length;
+        *self = cloned;
+        true
     }
 
-    if had_error {
-        return Err(());
+    pub fn consume_while(&mut self, fn_start: fn(char) -> bool, fn_mid: fn(char) -> bool) -> bool {
+        if !self.consume_if(fn_start) {
+            return false;
+        }
+
+        while self.consume_if(fn_mid) {}
+
+        true
     }
 
-    Ok(tokens)
+    pub fn consume_until_char(&mut self, wanted: char) {
+        while !self.ended() && self.current != wanted {
+            self.advance();
+        }
+    }
 }
 
-fn check_for_whitespace(src: &[char]) -> Option<(TokenKind, usize)> {
-    let mut length = 0;
+fn check_for_whitespace(src: &str) -> Option<(TokenKind, usize)> {
+    let mut walker = CharWalker::new(src);
 
-    if !is_whitespace(src[length]) {
+    if !walker.consume_while(is_whitespace, is_whitespace) {
         return None;
     }
 
-    while length < src.len() && is_whitespace(src[length]) {
-        length += 1;
-    }
-
-    Some((TokenKind::Whitespace, length))
+    Some((TokenKind::Whitespace, walker.length))
 }
 
-fn check_for_comment(src: &[char]) -> Option<(TokenKind, usize)> {
-    let mut length = 0;
+fn check_for_comment(src: &str) -> Option<(TokenKind, usize)> {
+    let mut walker = CharWalker::new(src);
 
-    if src[length] != ';' {
+    if !walker.consume_char(';') {
         return None;
     }
 
-    if length + 1 < src.len() && src[length + 1] == '*' {
-        let mut nesting = 1;
-        length += 2;
+    if walker.consume_char('*') {
+        let mut nesting = 0;
 
         loop {
-            if length + 1 >= src.len() {
-                return None;
-            }
-
-            if src[length] == ';' && src[length + 1] == '*' {
+            if walker.ended() {
+                break;
+            } else if walker.consume_str(";*") {
                 nesting += 1;
-                length += 2;
-                continue;
-            }
-
-            if src[length] == '*' && src[length + 1] == ';' {
-                nesting -= 1;
-                length += 2;
-
+            } else if walker.consume_str("*;") {
                 if nesting == 0 {
                     break;
                 }
 
-                continue;
+                nesting -= 1;
+            } else {
+                walker.advance();
             }
-
-            length += 1;
         }
 
-        return Some((TokenKind::Comment, length));
+        return Some((TokenKind::Comment, walker.length));
     } else {
-        while length < src.len() && src[length] != '\n' {
-            length += 1;
-        }
-        return Some((TokenKind::Comment, length));
+        walker.consume_until_char('\n');
+        return Some((TokenKind::Comment, walker.length));
     }
 }
 
-fn check_for_identifier(src: &[char]) -> Option<(TokenKind, usize)> {
-    let mut length = 0;
+fn check_for_identifier(src: &str) -> Option<(TokenKind, usize)> {
+    let mut walker = CharWalker::new(src);
 
-    if !is_identifier_start(src[length]) {
+    if walker.consume_if(|c| c == '$') {
+        return Some((TokenKind::Identifier, walker.length));
+    }
+
+    if !walker.consume_while(is_identifier_start, is_identifier_mid) {
         return None;
     }
 
-    while length < src.len() && is_identifier_mid(src[length]) {
-        length += 1;
+    let length = walker.length;
+
+    let ident = src.get(0..length).unwrap();
+
+    static KEYWORDS: [(&str, TokenKind); 3] = [
+        ("asm", TokenKind::KeywordAsm),
+        ("true", TokenKind::KeywordTrue),
+        ("false", TokenKind::KeywordFalse),
+    ];
+
+    for keyword in KEYWORDS {
+        if ident == keyword.0 {
+            return Some((keyword.1, length));
+        }
     }
 
     Some((TokenKind::Identifier, length))
 }
 
-fn check_for_number(src: &[char]) -> Option<(TokenKind, usize)> {
-    let mut length = 0;
+fn check_for_number(src: &str) -> Option<(TokenKind, usize)> {
+    let mut walker = CharWalker::new(src);
 
-    if !is_number_start(src[length]) {
-        return None;
+    if walker.consume_while(is_number_start, is_number_mid) {
+        return Some((TokenKind::Number, walker.length));
+    } else if walker.consume_char('$') {
+        if walker.consume_while(is_hex_number_mid, is_hex_number_mid) {
+            return Some((TokenKind::Number, walker.length));
+        }
+    } else if walker.consume_char('%') {
+        if walker.consume_while(is_bin_number_mid, is_bin_number_mid) {
+            return Some((TokenKind::Number, walker.length));
+        }
     }
 
-    while length < src.len() && is_number_mid(src[length]) {
-        length += 1;
-    }
-
-    Some((TokenKind::Number, length))
+    None
 }
 
-fn check_for_string(src: &[char]) -> Option<(TokenKind, usize)> {
-    let mut length = 0;
+fn check_for_string(src: &str) -> Option<(TokenKind, usize)> {
+    let mut walker = CharWalker::new(src);
 
-    if src[length] != '\"' {
+    if !walker.consume_char('\"') {
         return None;
     }
 
-    length += 1;
+    walker.consume_until_char('\"');
 
-    while length < src.len() && src[length] != '\"' {
-        length += 1;
-    }
-
-    if length >= src.len() {
+    if !walker.consume_char('\"') {
         return None;
     }
 
-    if src[length] != '\"' {
-        return None;
-    }
-
-    length += 1;
-
-    Some((TokenKind::String, length))
+    Some((TokenKind::String, walker.length))
 }
 
-fn check_for_fixed(src: &[char]) -> Option<(TokenKind, usize)> {
-    static POSSIBLE_TOKENS: [(&str, TokenKind); 41] = [
+fn check_for_special(src: &str) -> Option<(TokenKind, usize)> {
+    static TOKENS: [(&str, TokenKind); 40] = [
         ("\n", TokenKind::LineBreak),
-        ("asm", TokenKind::KeywordAsm),
         ("(", TokenKind::ParenOpen),
         (")", TokenKind::ParenClose),
         ("[", TokenKind::BracketOpen),
@@ -409,34 +382,33 @@ fn check_for_fixed(src: &[char]) -> Option<(TokenKind, usize)> {
         ("~", TokenKind::Tilde),
         ("@", TokenKind::At),
         ("`", TokenKind::Grave),
-        ("&&", TokenKind::AmpersandAmpersand),
+        ("&&", TokenKind::DoubleAmpersand),
         ("&", TokenKind::Ampersand),
-        ("||", TokenKind::VerticalBarVerticalBar),
+        ("||", TokenKind::DoubleVerticalBar),
         ("|", TokenKind::VerticalBar),
-        ("==", TokenKind::EqualEqual),
+        ("==", TokenKind::DoubleEqual),
         ("=", TokenKind::Equal),
         ("?", TokenKind::Question),
         ("!=", TokenKind::ExclamationEqual),
         ("!", TokenKind::Exclamation),
         ("<=", TokenKind::LessThanEqual),
-        ("<<", TokenKind::LessThanLessThan),
+        ("<<", TokenKind::DoubleLessThan),
         ("<", TokenKind::LessThan),
         (">=", TokenKind::GreaterThanEqual),
-        (">>>", TokenKind::GreaterThanGreaterThanGreaterThan),
-        (">>", TokenKind::GreaterThanGreaterThan),
+        (">>>", TokenKind::TripleGreaterThan),
+        (">>", TokenKind::DoubleGreaterThan),
         (">", TokenKind::GreaterThan),
     ];
 
-    let maybe_match = POSSIBLE_TOKENS.iter().find(|op| {
-        for (i, c) in op.0.chars().enumerate() {
-            if i >= src.len() || src[i] != c {
-                return false;
-            }
-        }
-        true
-    });
+    let mut walker = CharWalker::new(src);
 
-    maybe_match.map(|s| (s.1, s.0.chars().count()))
+    for tk in TOKENS {
+        if walker.consume_str(tk.0) {
+            return Some((tk.1, walker.length));
+        }
+    }
+
+    None
 }
 
 pub fn is_whitespace(c: char) -> bool {
@@ -444,15 +416,11 @@ pub fn is_whitespace(c: char) -> bool {
 }
 
 fn is_identifier_start(c: char) -> bool {
-    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$'
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 }
 
 fn is_identifier_mid(c: char) -> bool {
-    (c >= 'a' && c <= 'z')
-        || (c >= 'A' && c <= 'Z')
-        || (c >= '0' && c <= '9')
-        || c == '_'
-        || c == '$'
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
 }
 
 fn is_number_start(c: char) -> bool {
@@ -460,10 +428,13 @@ fn is_number_start(c: char) -> bool {
 }
 
 fn is_number_mid(c: char) -> bool {
-    (c >= 'a' && c <= 'z')
-        || (c >= 'A' && c <= 'Z')
-        || (c >= '0' && c <= '9')
-        || c == '_'
-        || c == '.'
-        || c == '\''
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+}
+
+fn is_bin_number_mid(c: char) -> bool {
+    (c >= '0' && c <= '1') || c == '_'
+}
+
+fn is_hex_number_mid(c: char) -> bool {
+    (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || (c >= '0' && c <= '9') || c == '_'
 }

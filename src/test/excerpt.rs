@@ -1,7 +1,6 @@
 use super::ExpectedResult::*;
 use super::{expect_result, ExpectedResult};
 use crate::*;
-use std::rc::Rc;
 
 fn test(src: &str, expected: ExpectedResult<&str>) {
     let mut src_quoted = String::new();
@@ -10,15 +9,18 @@ fn test(src: &str, expected: ExpectedResult<&str>) {
     src_quoted.push_str("\"");
     let src_quoted: &str = src_quoted.as_ref();
 
-    let report = diagn::RcReport::new();
+    let mut report = diagn::Report::new();
     let mut fileserver = util::FileServerMock::new();
     fileserver.add("test", src_quoted);
 
-    let span = diagn::Span::new(Rc::new("test".to_string()), 0, 0);
+    use util::FileServer;
+    let file_handle = fileserver.get_handle_unwrap("test");
+    let span = diagn::Span::new(file_handle, 0, 0);
 
-    let result = syntax::excerpt_as_string_contents(report.clone(), src_quoted, &span).ok();
+    let result = syntax::excerpt_as_string_contents(&mut report, span, src_quoted).ok();
+
     let result = result.as_ref().map(|s| s.as_ref());
-    expect_result(report.clone(), &fileserver, result, expected);
+    expect_result(&mut report, &mut fileserver, result, expected);
 }
 
 #[test]

@@ -2,7 +2,8 @@ use crate::*;
 
 #[derive(Clone, Debug)]
 pub struct BitVec {
-    pub bits: Vec<bool>,
+    data: util::BigInt,
+    len: usize,
     pub spans: Vec<BitVecSpan>,
 }
 
@@ -14,45 +15,75 @@ pub struct BitVecSpan {
     pub span: diagn::Span,
 }
 
+#[derive(Clone, Debug)]
+pub struct BitVecBlock {
+    pub offset: usize,
+    pub size: usize,
+}
+
 impl BitVec {
     pub fn new() -> BitVec {
         BitVec {
-            bits: Vec::new(),
+            data: util::BigInt::from(0),
+            len: 0,
             spans: Vec::new(),
         }
     }
 
-    pub fn write(&mut self, index: usize, bit: bool) {
-        while self.bits.len() <= index {
-            self.bits.push(false);
-        }
+    pub fn write_bit(&mut self, index: usize, value: bool) {
+        self.data.set_bit(index, value);
 
-        self.bits[index] = bit;
-    }
-
-    pub fn write_bigint(&mut self, index: usize, bigint: util::BigInt) {
-        for i in 0..bigint.size.unwrap() {
-            self.write(index + i, bigint.get_bit(bigint.size.unwrap() - 1 - i));
+        if index + 1 > self.len {
+            self.len = index + 1;
         }
     }
 
     pub fn write_bitvec(&mut self, index: usize, bitvec: &util::BitVec) {
         for i in 0..bitvec.len() {
-            self.write(index + i, bitvec.read(i));
+            self.write_bit(index + i, bitvec.read_bit(i));
         }
-
-        self.mark_spans_from(index, &bitvec);
+        if index + bitvec.len() > self.len {
+            self.len = index + bitvec.len();
+        }
     }
 
-    pub fn mark_spans_from(&mut self, index: usize, bitvec: &util::BitVec) {
-        for span in &bitvec.spans {
-            let mut new_span = span.clone();
-            if let Some(offset) = new_span.offset {
-                new_span.offset = Some(offset + index);
-            }
+    pub fn read_bit(&self, index: usize) -> bool {
+        self.data.get_bit(index)
+    }
 
-            self.spans.push(new_span);
+    pub fn slice(&self, start: usize, end: usize) -> Self {
+        let mut result = Self::new();
+        result.data = self.data.slice(end, start);
+        result.len = end - start;
+        result
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn write_bigint(&mut self, index: usize, bigint: &util::BigInt) {
+        let size = bigint.size.unwrap();
+
+        for i in 0..size {
+            self.data.set_bit(index + i, bigint.get_bit(size - 1 - i));
         }
+
+        if index + size > self.len {
+            self.len = index + size;
+        }
+    }
+
+    pub fn write_bigint_with_span(
+        &mut self,
+        span: diagn::Span,
+        offset: usize,
+        addr: util::BigInt,
+        bigint: &util::BigInt,
+    ) {
+        self.write_bigint(offset, bigint);
+
+        self.mark_span(Some(offset), bigint.size.unwrap(), addr, span);
     }
 
     pub fn mark_span(
@@ -70,33 +101,62 @@ impl BitVec {
         });
     }
 
-    pub fn read(&self, bit_index: usize) -> bool {
-        if bit_index >= self.bits.len() {
-            false
-        } else {
-            self.bits[bit_index]
-        }
-    }
+    pub fn to_bigint(&self) -> util::BigInt {
+        let mut bigint = util::BigInt::from(0);
 
-    pub fn as_bigint(&self) -> util::BigInt {
-        let mut bigint: util::BigInt = 0.into();
-
-        for i in 0..self.bits.len() {
-            bigint = bigint.set_bit(self.bits.len() - 1 - i, self.bits[i]);
+        for i in 0..self.len {
+            bigint.set_bit(self.len - 1 - i, self.read_bit(i));
         }
 
-        bigint.size = Some(self.bits.len());
+        bigint.size = Some(self.len);
         bigint
     }
 
-    pub fn truncate(&mut self, new_len: usize) {
-        while self.bits.len() > new_len {
-            self.bits.pop();
-        }
-    }
+    pub fn get_blocks(&self) -> Vec<BitVecBlock> {
+        let mut result = Vec::new();
 
-    pub fn len(&self) -> usize {
-        self.bits.len()
+        let mut sorted_spans = self.spans.clone();
+        sorted_spans.sort_by(|a, b| a.offset.cmp(&b.offset));
+
+        let mut current_origin: Option<usize> = None;
+        let mut current_size = 0;
+
+        for span in &sorted_spans {
+            let Some(span_offset) = span.offset else {
+                continue;
+            };
+
+            if let Some(origin) = current_origin {
+                if span_offset != origin + current_size {
+                    if current_size != 0 {
+                        result.push(BitVecBlock {
+                            offset: origin,
+                            size: current_size,
+                        });
+                    }
+
+                    current_origin = None;
+                }
+            }
+
+            if let None = current_origin {
+                current_origin = Some(span_offset);
+                current_size = 0;
+            }
+
+            current_size += span.size;
+        }
+
+        if let Some(origin) = current_origin {
+            if current_size != 0 {
+                result.push(BitVecBlock {
+                    offset: origin,
+                    size: current_size,
+                });
+            }
+        }
+
+        result
     }
 }
 
@@ -105,11 +165,11 @@ impl std::fmt::LowerHex for BitVec {
         use std::fmt::Write;
 
         let mut i = 0;
-        while i < self.bits.len() {
+        while i < self.len() {
             let mut digit = 0;
             for _ in 0..4 {
                 digit <<= 1;
-                digit |= if self.read(i) { 1 } else { 0 };
+                digit |= if self.read_bit(i) { 1 } else { 0 };
                 i += 1;
             }
 

@@ -1,6 +1,6 @@
 [package]
-name = "customasmlib"
-version = "0.13.0"
+name = "customasm"
+version = "0.13.11"
 edition = "2021"
 authors = [
   "hlorenzi <https://hlorenzi.com>",
@@ -18,7 +18,7 @@ build = "src/build.rs"
 
 [lib]
 crate-type = ["lib", "cdylib"]
-name = "customasmlib"
+name = "customasm"
 path = "src/lib.rs"
 
 [[bin]]
@@ -26,14 +26,8 @@ name = "customasm"
 path = "src/main.rs"
 
 [dependencies]
-getopts = "0.2.21"
-num-bigint = { version = "0.4.3", default_features = false }
-num-traits = { version = "0.2.16", default_features = false }
-num-integer = { version = "0.1.45", default_features = false }
+getopts = "0.2"
+num-bigint = "0.4"
 
 [dev-dependencies]
-sha2 = "0.10.7"
-
-[build-dependencies]
-vergen = { version = "8.2.4", features = ["build", "git", "gitoxide", "cargo"] }
-proc-macro2 = { version = "1.0.66" }
+sha2 = "0.9"

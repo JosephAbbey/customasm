@@ -2,26 +2,24 @@ use crate::*;
 use sha2::*;
 
 fn test_example(filename: &str, hash: &[u8]) {
-    let mut fileserver = util::FileServerReal::new();
-    let report = diagn::RcReport::new();
-    let mut assembler = asm::Assembler::new();
-    assembler.register_file(filename);
+    let mut report = diagn::Report::new();
 
-    let output = assembler.assemble(report.clone(), &mut fileserver, 2);
-    report.print_all(&mut std::io::stdout(), &fileserver);
+    let mut fileserver = util::FileServerReal::new();
+    fileserver.add_std_files(test::STD_FILES);
+
+    let opts = asm::AssemblyOptions::new();
+
+    let assembly = asm::assemble(&mut report, &opts, &mut fileserver, &[filename]);
+
+    report.print_all(&mut std::io::stdout(), &fileserver, true);
+
+    let output = assembly.output.unwrap();
 
     let mut output_hasher = sha2::Sha256::new();
-    output_hasher.update(output.as_ref().unwrap().binary.format_binary());
+    output_hasher.update(output.format_binary());
     let output_hash = output_hasher.finalize();
 
-    println!(
-        "{}",
-        output
-            .as_ref()
-            .unwrap()
-            .binary
-            .format_annotated_hex(&fileserver, 8)
-    );
+    println!("{}", output.format_annotated(&fileserver, 16, 2));
 
     assert_eq!(output_hash[..], *hash);
 }
@@ -29,7 +27,7 @@ fn test_example(filename: &str, hash: &[u8]) {
 #[test]
 fn test_nes_example() {
     test_example(
-        "examples/nes/main.asm",
+        "examples/nes_colors.asm",
         &[
             226, 68, 213, 226, 71, 200, 16, 113, 21, 132, 193, 34, 10, 134, 112, 238, 69, 165, 45,
             199, 40, 151, 195, 76, 157, 120, 172, 169, 37, 180, 123, 104,

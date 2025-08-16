@@ -7,31 +7,29 @@ where
     S: Into<Vec<u8>>,
 {
     fn compile(
-        report: diagn::RcReport,
+        report: &mut diagn::Report,
         fileserver: &dyn util::FileServer,
+        file_handle: util::FileServerHandle,
     ) -> Result<expr::Value, ()> {
-        let chars = fileserver.get_chars(report.clone(), "test", None)?;
-        let tokens = syntax::tokenize(report.clone(), "test", &chars)?;
+        let chars = fileserver.get_str(report, None, file_handle)?;
+        let mut walker = syntax::Walker::new(&chars, file_handle, 0);
+        let expr = expr::parse(report, &mut walker)?;
 
-        let expr = expr::Expr::parse(&mut syntax::Parser::new(Some(report.clone()), &tokens))?;
-
-        let expr_value = expr.eval(
-            report.clone(),
-            &mut expr::EvalContext::new(),
-            &|_| Err(false),
-            &|_| Err(()),
-            &|_| Err(()),
-        )?;
+        let expr_value = expr.eval(report, &mut expr::dummy_eval_query)?;
 
         Ok(expr_value)
     }
 
-    let report = diagn::RcReport::new();
+    let mut report = diagn::Report::new();
     let mut fileserver = util::FileServerMock::new();
     fileserver.add("test", src);
 
-    let result = compile(report.clone(), &fileserver);
-    expect_result(report.clone(), &fileserver, result.ok(), expected);
+    use crate::util::FileServer;
+    let file_handle = fileserver.get_handle_unwrap("test");
+
+    let result = compile(&mut report, &fileserver, file_handle);
+
+    expect_result(&mut report, &mut fileserver, result.ok(), expected);
 }
 
 #[test]
@@ -80,18 +78,27 @@ fn test_literals() {
     test("0o10a", Fail(("test", 1, "invalid")));
     test("0x10g", Fail(("test", 1, "invalid")));
 
-    test("8'0x0", Fail(("test", 1, "invalid")));
-    test("0b8'0x00", Fail(("test", 1, "invalid")));
-    test("0x8'0x00", Fail(("test", 1, "invalid")));
+    test(
+        "8'5",
+        Pass(expr::Value::make_integer(util::BigInt::new(0x8, None))),
+    );
+    test(
+        "8'0x0",
+        Pass(expr::Value::make_integer(util::BigInt::new(0x8, None))),
+    );
+    test(
+        "8 xxx",
+        Pass(expr::Value::make_integer(util::BigInt::new(0x8, None))),
+    );
 }
 
 #[test]
 fn test_variables() {
-    test(" a", Fail(("test", 1, "unknown")));
-    test(".a", Fail(("test", 1, "unknown")));
+    test(" a", Fail(("test", 1, "cannot reference")));
+    test(".a", Fail(("test", 1, "cannot reference")));
 
-    test("1 +  a + 1", Fail(("test", 1, "unknown")));
-    test("1 + .a + 1", Fail(("test", 1, "unknown")));
+    test("1 +  a + 1", Fail(("test", 1, "cannot reference")));
+    test("1 + .a + 1", Fail(("test", 1, "cannot reference")));
 }
 
 #[test]
@@ -279,6 +286,19 @@ fn test_ops_arithmetic() {
     );
 
     test(
+        "-1 >> 1",
+        Pass(expr::Value::make_integer(util::BigInt::new(-1, None))),
+    );
+    test(
+        "-1 >> 2",
+        Pass(expr::Value::make_integer(util::BigInt::new(-1, None))),
+    );
+    test(
+        "-1 >> 3",
+        Pass(expr::Value::make_integer(util::BigInt::new(-1, None))),
+    );
+
+    test(
         "4 >> 0",
         Pass(expr::Value::make_integer(util::BigInt::new(4, None))),
     );
@@ -311,6 +331,14 @@ fn test_ops_arithmetic() {
         "-4 >> 3",
         Pass(expr::Value::make_integer(util::BigInt::new(-1, None))),
     );
+    test(
+        "-4 >> 4",
+        Pass(expr::Value::make_integer(util::BigInt::new(-1, None))),
+    );
+    test(
+        "-4 >> 5",
+        Pass(expr::Value::make_integer(util::BigInt::new(-1, None))),
+    );
 
     test(
         "123`0 + 2",
@@ -320,6 +348,11 @@ fn test_ops_arithmetic() {
 
 #[test]
 fn test_ops_bitmanipulation() {
+    test(
+        "-1 & -2",
+        Pass(expr::Value::make_integer(util::BigInt::new(-2, None))),
+    );
+
     test(
         "! 0",
         Pass(expr::Value::make_integer(util::BigInt::new(-1, None))),
@@ -534,6 +567,19 @@ fn test_ops_slice() {
     );
 
     test(
+        "0x101`8 + 1",
+        Pass(expr::Value::make_integer(util::BigInt::new(0x2, None))),
+    );
+    test(
+        "0x101`(4 + 4)",
+        Pass(expr::Value::make_integer(util::BigInt::new(0x1, Some(8)))),
+    );
+    test(
+        "0x101`0x8",
+        Pass(expr::Value::make_integer(util::BigInt::new(0x1, Some(8)))),
+    );
+
+    test(
         "0`0",
         Pass(expr::Value::make_integer(util::BigInt::new(0, Some(0)))),
     );
@@ -587,6 +633,19 @@ fn test_ops_slice() {
     test(
         "0xff[8:1]",
         Pass(expr::Value::make_integer(util::BigInt::new(0x7f, Some(8)))),
+    );
+
+    test(
+        "0x101[4 + 3:1 - 1]",
+        Pass(expr::Value::make_integer(util::BigInt::new(0x1, Some(8)))),
+    );
+    test(
+        "0x101[(4 + 3):(1 - 1)]",
+        Pass(expr::Value::make_integer(util::BigInt::new(0x1, Some(8)))),
+    );
+    test(
+        "0x101[0x7:0x0]",
+        Pass(expr::Value::make_integer(util::BigInt::new(0x1, Some(8)))),
     );
 
     test(
@@ -657,10 +716,21 @@ fn test_ops_slice() {
     );
 
     test("0x00[0:7]", Fail(("test", 1, "invalid")));
-
+    test(
+        "0x00`{}",
+        Fail(("test", 1, "expected non-negative integer")),
+    );
+    test(
+        "0x00`(1 == 2)",
+        Fail(("test", 1, "expected non-negative integer")),
+    );
+    test("0x00`-1", Fail(("test", 1, "expected expression")));
+    test("0x00`(-1)", Fail(("test", 1, "out of supported range")));
+    test("0x00[7:-1]", Fail(("test", 1, "out of supported range")));
+    test("0x00[-1:-2]", Fail(("test", 1, "out of supported range")));
     test(
         "0x00[0x1_ffff_ffff_ffff_ffff:7]",
-        Fail(("test", 1, "large")),
+        Fail(("test", 1, "out of supported range")),
     );
 }
 
@@ -755,12 +825,12 @@ fn test_ops_concat() {
         ))),
     );
 
-    test("0   @ 0", Fail(("test", 1, "unspecified size")));
-    test("0`8 @ 0", Fail(("test", 1, "unspecified size")));
-    test("0   @ 0`8", Fail(("test", 1, "unspecified size")));
+    test("0   @ 0", Fail(("test", 1, "indefinite size")));
+    test("0`8 @ 0", Fail(("test", 1, "indefinite size")));
+    test("0   @ 0`8", Fail(("test", 1, "indefinite size")));
 
-    test("-0x1 @  0x1", Fail(("test", 1, "unspecified size")));
-    test(" 0x1 @ -0x1", Fail(("test", 1, "unspecified size")));
+    test("-0x1 @  0x1", Fail(("test", 1, "indefinite size")));
+    test(" 0x1 @ -0x1", Fail(("test", 1, "indefinite size")));
 }
 
 #[test]
@@ -918,9 +988,18 @@ fn test_ops_arith_errors() {
     test("2 % 0", Fail(("test", 1, "modulo by zero")));
     test("2 % (1 - 1)", Fail(("test", 1, "modulo by zero")));
 
-    test("2 << (1 << 1000)", Fail(("test", 1, "invalid shift")));
-    test("2 >> (1 << 1000)", Fail(("test", 1, "invalid shift")));
-    test("2 >> (1 << 1000)", Fail(("test", 1, "invalid shift")));
+    test(
+        "2 << (1 << 1000)",
+        Fail(("test", 1, "out of supported range")),
+    );
+    test(
+        "2 >> (1 << 1000)",
+        Fail(("test", 1, "out of supported range")),
+    );
+    test(
+        "2 >> (1 << 1000)",
+        Fail(("test", 1, "out of supported range")),
+    );
 }
 
 #[test]
@@ -1054,7 +1133,7 @@ fn test_assignment() {
     );
     test(
         "{ x = 456, y = 123, x < y ? min = x,           min }",
-        Fail(("test", 1, "unknown")),
+        Fail(("test", 1, "cannot reference")),
     );
 
     test("0 = 1", Fail(("test", 1, "invalid")));

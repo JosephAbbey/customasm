@@ -1,6 +1,6 @@
 # customasm
-
-This is an assembler that takes custom, user-defined instruction sets and uses them to assemble source files.
+`customasm` is an assembler that allows you to provide your own **custom
+instruction sets** to assemble your source files! 
 It can be useful, for example, if you're trying to test the bytecode of a new virtual machine,
 or if you're eager to write programs for that new microprocessor architecture you just implemented in an FPGA chip!
 
@@ -9,6 +9,7 @@ or if you're eager to write programs for that new microprocessor architecture yo
 [![Releases][badge-downloads-img]][badge-downloads-url]
 
 [![Discord][badge-discord-img]][badge-discord-url]
+[![GitHub Sponsor][badge-github-sponsor-img]][badge-github-sponsor-url]
 
 [badge-cratesio-img]: https://img.shields.io/crates/v/customasm
 [badge-cratesio-url]: https://crates.io/crates/customasm
@@ -16,25 +17,31 @@ or if you're eager to write programs for that new microprocessor architecture yo
 [badge-latest-url]: https://github.com/hlorenzi/customasm/releases
 [badge-downloads-img]: https://img.shields.io/github/downloads/hlorenzi/customasm/total
 [badge-downloads-url]: https://github.com/hlorenzi/customasm/releases
+
+[badge-github-sponsor-img]: https://img.shields.io/github/sponsors/hlorenzi?label=GitHub%20Sponsors&logo=GitHub
+[badge-github-sponsor-url]: https://github.com/sponsors/hlorenzi
+
 [badge-discord-img]: https://img.shields.io/discord/394999035540275222?label=Join%20the%20Discord%20server!&logo=discord
 [badge-discord-url]: https://discord.com/invite/pXeDXGD
 
-[🖥️ Try it right now on your browser!](https://hlorenzi.github.io/customasm/web/)
+[🖥️ Try it right now on your web browser!](https://hlorenzi.github.io/customasm/web/)
 
-[🕹️ Check out an example project](/examples/nes/) which targets the NES!
+[🕹️ Check out an example project](/examples/nes_colors.asm) which targets the NES!
 
 [⌨️ Install the VSCode syntax highlight extension!](https://marketplace.visualstudio.com/items?itemName=hlorenzi.customasm-vscode)
 
-[❤️ Support me!](https://accounts.hlorenzi.com/supporters)
+[❤️ Support the author!](https://accounts.hlorenzi.com/supporters)
 
 ## Documentation
 
 [📚 Check out the wiki](https://github.com/hlorenzi/customasm/wiki)
-for a changelog, details on advanced features, and a how-to guide!
+for a changelog, documentation, and a how-to-start guide!
+
+[💲 Check out the command-line help!](/src/usage_help.md) (Better formatted on the command-line itself)
 
 ## Installation
 
-You can install directly from crates.io by running `cargo install customasm`.
+You can install directly from *crates.io* by running `cargo install customasm`.
 Then the `customasm` application should automatically become available in your
 command-line environment.
 
@@ -45,10 +52,6 @@ You can compile from source yourself by first cloning the repository and
 then simply running `cargo build`.
 There's also a battery of tests available at `cargo test`.
 
-## Upgrade to v0.11
-
-[📖 Check out instructions for migration from older versions to v0.11!](https://github.com/hlorenzi/customasm/wiki/Migrating-to-v0.11)
-
 ## Example
 
 Given the following file:
@@ -56,13 +59,13 @@ Given the following file:
 ```asm
 #ruledef
 {
-    load r1, {value} => 0x11 @ value`8
-    load r2, {value} => 0x12 @ value`8
-    load r3, {value} => 0x13 @ value`8
-    add  r1, r2      => 0x21
-    sub  r3, {value} => 0x33 @ value`8
-    jnz  {address}   => 0x40 @ address`16
-    ret              => 0x50
+    load r1, {value: i8} => 0x11 @ value
+    load r2, {value: i8} => 0x12 @ value
+    load r3, {value: i8} => 0x13 @ value
+    add  r1, r2          => 0x21
+    sub  r3, {value: i8} => 0x33 @ value
+    jnz  {address: u16}  => 0x40 @ address
+    ret                  => 0x50
 }
 
 multiply3x4:
@@ -82,7 +85,7 @@ multiply3x4:
 instructions into binary code:
 
 ```asm
- outp | addr | data
+ outp | addr | data (base 16)
 
   0:0 |    0 |          ; multiply3x4:
   0:0 |    0 | 11 00    ; load r1, 0
@@ -93,34 +96,4 @@ instructions into binary code:
   7:0 |    7 | 33 01    ; sub r3, 1
   9:0 |    9 | 40 00 06 ; jnz .loop
   c:0 |    c | 50       ; ret
-```
-
-## Command-Line Usage
-
-```plaintext
-Usage: customasm [options] <asm-file-1> ... <asm-file-N>
-
-Options:
-    -d, --disassemble [FILE]
-                        Disassemble
-    -n, --number-format [FILE]
-                        The format of numbers in the disassembly output.
-                        Possible formats: hex, bin, dec
-    -f, --format FORMAT The format of the output (input for disassembly,
-                        compatible modes have a star) file. Possible formats:
-                        binary*, annotated, annotatedbin, binstr*, binline*,
-                        hexstr*, hexline*, bindump, hexdump, mif, intelhex,
-                        deccomma, hexcomma, decc, hexc, binvhdl, hexvhdl,
-                        logisim8, logisim16, addrspan
-    -o, --output [FILE] The name of the output file.
-        --symbol-format SYMBOL-FORMAT
-                        The format of the symbol file. Possible formats:
-                        default, mesen-mlb
-    -s, --symbol [FILE] The name of the output symbol file.
-    -t, --iter [NUM]    The max number of passes the assembler will attempt
-                        (default: 10).
-    -p, --print         Print output to stdout instead of writing to a file.
-    -q, --quiet         Suppress progress reports.
-    -v, --version       Display version information.
-    -h, --help          Display this information.
 ```

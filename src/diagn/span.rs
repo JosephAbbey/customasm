@@ -1,80 +1,114 @@
-use std::rc::Rc;
+use crate::*;
 
-#[derive(Debug, Clone, Hash, Eq)]
+#[derive(Copy, Clone, Hash, Eq)]
 pub struct Span {
-    pub file: Rc<String>,
-    pub location: Option<(usize, usize)>,
+    pub file_handle: util::FileServerHandle,
+
+    /// Represents byte indices into the file contents
+    /// (as opposed to UTF-8 char boundaries).
+    location: (usize, usize),
 }
 
 impl Span {
-    pub fn new(filename: Rc<String>, start: usize, end: usize) -> Span {
+    pub fn new(file_handle: util::FileServerHandle, start: usize, end: usize) -> Span {
         Span {
-            file: filename,
-            location: Some((start, end)),
+            file_handle,
+            location: (start, end),
         }
     }
 
     pub fn new_dummy() -> Span {
         Span {
-            file: Rc::new("".to_string()),
-            location: None,
+            file_handle: 0,
+            location: (usize::MAX, usize::MAX),
         }
     }
 
+    pub fn location(&self) -> Option<(usize, usize)> {
+        if self.location.0 == usize::MAX {
+            return None;
+        }
+
+        Some(self.location)
+    }
+
+    pub fn length(&self) -> usize {
+        if self.location.0 == usize::MAX {
+            return 0;
+        }
+
+        self.location.1 - self.location.0
+    }
+
     pub fn before(&self) -> Span {
-        if self.location.is_none() {
-            self.clone()
+        if self.location.0 == usize::MAX {
+            *self
         } else {
-            let start = self.location.unwrap().0;
+            let start = self.location.0;
 
             Span {
-                file: self.file.clone(),
-                location: Some((start, start)),
+                file_handle: self.file_handle,
+                location: (start, start),
             }
         }
     }
 
     pub fn after(&self) -> Span {
-        if self.location.is_none() {
-            self.clone()
+        if self.location.0 == usize::MAX {
+            *self
         } else {
-            let end = self.location.unwrap().1;
+            let end = self.location.1;
 
             Span {
-                file: self.file.clone(),
-                location: Some((end, end)),
+                file_handle: self.file_handle,
+                location: (end, end),
             }
         }
     }
 
-    pub fn join(&self, other: &Span) -> Span {
-        if self.location.is_none() {
-            return other.clone();
-        } else if other.location.is_none() {
-            return self.clone();
-        }
+    pub fn join(&self, other: Span) -> Span {
+        match (self.location, other.location) {
+            (_, (usize::MAX, _)) => *self,
+            ((usize::MAX, _), _) => other,
+            (self_loc, other_loc) => {
+                assert!(
+                    self.file_handle == other.file_handle,
+                    "joining spans from different files"
+                );
 
-        assert!(
-            self.file == other.file,
-            "joining spans from different files"
-        );
+                let start = std::cmp::min(self_loc.0, other_loc.0);
 
-        let location = {
-            use std::cmp::{max, min};
-            let start = min(self.location.unwrap().0, other.location.unwrap().0);
-            let end = max(self.location.unwrap().1, other.location.unwrap().1);
-            Some((start, end))
-        };
+                let end = std::cmp::max(self_loc.1, other_loc.1);
 
-        Span {
-            file: self.file.clone(),
-            location: location,
+                Span {
+                    file_handle: self.file_handle,
+                    location: (start, end),
+                }
+            }
         }
     }
 }
 
 impl PartialEq for Span {
-    fn eq(&self, other: &Self) -> bool {
-        self.file == other.file && self.location == other.location
+    fn eq(&self, other: &diagn::Span) -> bool {
+        self.file_handle == other.file_handle && self.location == other.location
+    }
+}
+
+impl std::fmt::Debug for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Span(")?;
+        write!(f, "file#{:?}", &self.file_handle)?;
+
+        if self.location.0 != usize::MAX {
+            f.write_str("[")?;
+            <usize as std::fmt::Debug>::fmt(&self.location.0, f)?;
+            f.write_str("..")?;
+            <usize as std::fmt::Debug>::fmt(&self.location.1, f)?;
+            f.write_str("]")?;
+        }
+
+        f.write_str(")")?;
+        Ok(())
     }
 }

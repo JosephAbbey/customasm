@@ -1,44 +1,67 @@
-use crate::diagn::{RcReport, Span};
-use crate::util::CharCounter;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::Path;
+use crate::*;
+
+pub type FileServerHandle = usize;
+
+pub const FILESERVER_MOCK_WRITE_FILENAME_SUFFIX: &str = "_written";
 
 pub trait FileServer {
-    fn exists(&self, filename: &str) -> bool;
+    fn get_handle(
+        &mut self,
+        report: &mut diagn::Report,
+        span: Option<diagn::Span>,
+        filename: &str,
+    ) -> Result<FileServerHandle, ()>;
+
+    fn get_handle_unwrap(&mut self, filename: &str) -> FileServerHandle {
+        self.get_handle(&mut diagn::Report::new(), None, filename)
+            .unwrap()
+    }
+
+    fn get_filename(&self, file_handle: FileServerHandle) -> &str;
 
     fn get_bytes(
         &self,
-        report: RcReport,
-        filename: &str,
-        span: Option<&Span>,
+        report: &mut diagn::Report,
+        span: Option<diagn::Span>,
+        file_handle: FileServerHandle,
     ) -> Result<Vec<u8>, ()>;
 
-    fn get_chars(
-        &self,
-        report: RcReport,
-        filename: &str,
-        span: Option<&Span>,
-    ) -> Result<Vec<char>, ()> {
-        let bytes = self.get_bytes(report, filename, span)?;
+    fn get_bytes_unwrap(&self, file_handle: FileServerHandle) -> Vec<u8> {
+        self.get_bytes(&mut diagn::Report::new(), None, file_handle)
+            .unwrap()
+    }
 
-        Ok(String::from_utf8_lossy(&bytes).chars().collect())
+    fn get_str(
+        &self,
+        report: &mut diagn::Report,
+        span: Option<diagn::Span>,
+        file_handle: FileServerHandle,
+    ) -> Result<String, ()> {
+        let bytes = self.get_bytes(report, span, file_handle)?;
+
+        let string = String::from_utf8_lossy(&bytes).to_string();
+
+        Ok(string)
+    }
+
+    fn get_str_unwrap(&self, file_handle: FileServerHandle) -> String {
+        self.get_str(&mut diagn::Report::new(), None, file_handle)
+            .unwrap()
     }
 
     fn write_bytes(
         &mut self,
-        report: RcReport,
+        report: &mut diagn::Report,
+        span: Option<diagn::Span>,
         filename: &str,
         data: &Vec<u8>,
-        span: Option<&Span>,
     ) -> Result<(), ()>;
 
-    fn get_excerpt(&self, span: &Span) -> String {
-        if let Ok(chars) = self.get_chars(RcReport::new(), &*span.file, None) {
-            let counter = CharCounter::new(&chars);
-            let location = span.location.unwrap();
-            counter.get_excerpt(location.0, location.1).iter().collect()
+    fn get_excerpt(&self, span: diagn::Span) -> String {
+        if let Ok(chars) = self.get_str(&mut diagn::Report::new(), None, span.file_handle) {
+            let counter = util::CharCounter::new(&chars);
+            let location = span.location().unwrap();
+            counter.get_excerpt(location.0, location.1).to_string()
         } else {
             "".to_string()
         }
@@ -46,15 +69,29 @@ pub trait FileServer {
 }
 
 pub struct FileServerMock {
-    files: HashMap<String, Vec<u8>>,
+    handles: std::collections::HashMap<String, FileServerHandle>,
+    handles_to_filename: Vec<String>,
+    files: Vec<Vec<u8>>,
 }
 
-pub struct FileServerReal;
+pub struct FileServerReal {
+    handles: std::collections::HashMap<String, FileServerHandle>,
+    handles_to_filename: Vec<String>,
+    std_files: Vec<Option<&'static str>>,
+}
 
 impl FileServerMock {
     pub fn new() -> FileServerMock {
         FileServerMock {
-            files: HashMap::new(),
+            handles: std::collections::HashMap::new(),
+            handles_to_filename: Vec::new(),
+            files: Vec::new(),
+        }
+    }
+
+    pub fn add_std_files(&mut self, entries: &[(&str, &str)]) {
+        for (filename, contents) in entries {
+            self.add(*filename, *contents);
         }
     }
 
@@ -63,124 +100,257 @@ impl FileServerMock {
         S: Into<String>,
         T: Into<Vec<u8>>,
     {
-        self.files.insert(filename.into(), contents.into());
+        let filename = filename.into();
+
+        let next_index = self.handles.len();
+
+        let handle = *self
+            .handles
+            .entry(filename.clone())
+            .or_insert(next_index.try_into().unwrap());
+
+        while handle >= self.files.len() {
+            self.handles_to_filename.push("".to_string());
+            self.files.push(Vec::new());
+        }
+
+        self.handles_to_filename[handle] = filename;
+        self.files[handle] = contents.into();
     }
 }
 
 impl FileServerReal {
     pub fn new() -> FileServerReal {
-        FileServerReal
+        FileServerReal {
+            handles: std::collections::HashMap::new(),
+            handles_to_filename: Vec::new(),
+            std_files: Vec::new(),
+        }
+    }
+
+    pub fn add_std_files(&mut self, entries: &[(&str, &'static str)]) {
+        for (filename, contents) in entries {
+            self.add(*filename, *contents);
+        }
+    }
+
+    pub fn add<S>(&mut self, filename: S, contents: &'static str)
+    where
+        S: Into<String>,
+    {
+        let filename = filename.into();
+
+        let next_index = self.handles.len();
+
+        let handle = *self
+            .handles
+            .entry(filename.clone())
+            .or_insert(next_index.try_into().unwrap());
+
+        while handle >= self.std_files.len() {
+            self.handles_to_filename.push("".to_string());
+            self.std_files.push(None);
+        }
+
+        self.handles_to_filename[handle] = filename;
+        self.std_files[handle] = Some(contents);
     }
 }
 
 impl FileServer for FileServerMock {
-    fn exists(&self, filename: &str) -> bool {
-        self.files.get(filename).is_some()
+    fn get_handle(
+        &mut self,
+        report: &mut diagn::Report,
+        span: Option<diagn::Span>,
+        filename: &str,
+    ) -> Result<FileServerHandle, ()> {
+        if self.handles.len() == FileServerHandle::MAX {
+            report_error(report, span, "exhausted number of file handles");
+
+            return Err(());
+        }
+
+        if !self.handles.contains_key(filename) {
+            report_error(report, span, format!("file not found: `{}`", filename));
+
+            return Err(());
+        }
+
+        let handle = self.handles.get(filename).unwrap();
+
+        Ok(*handle)
+    }
+
+    fn get_filename(&self, file_handle: FileServerHandle) -> &str {
+        &self.handles_to_filename[file_handle]
     }
 
     fn get_bytes(
         &self,
-        report: RcReport,
-        filename: &str,
-        span: Option<&Span>,
+        _report: &mut diagn::Report,
+        _span: Option<diagn::Span>,
+        file_handle: FileServerHandle,
     ) -> Result<Vec<u8>, ()> {
-        match self.files.get(filename) {
-            None => Err(error(
-                report,
-                format!("file not found: `{}`", filename),
-                span,
-            )),
-            Some(bytes) => Ok(bytes.clone()),
-        }
+        Ok(self.files[file_handle].clone())
     }
 
     fn write_bytes(
         &mut self,
-        _report: RcReport,
+        _report: &mut diagn::Report,
+        _span: Option<diagn::Span>,
         filename: &str,
         data: &Vec<u8>,
-        _span: Option<&Span>,
     ) -> Result<(), ()> {
-        self.files.insert(filename.to_string(), data.clone());
+        let new_index = self.handles.len();
+
+        let mock_filename = format!("{}{}", filename, FILESERVER_MOCK_WRITE_FILENAME_SUFFIX);
+
+        let handle = *self
+            .handles
+            .entry(mock_filename)
+            .or_insert(new_index.try_into().unwrap());
+
+        while handle >= self.files.len() {
+            self.files.push(Vec::new());
+        }
+
+        self.files[handle] = data.clone();
+
         Ok(())
     }
 }
 
 impl FileServer for FileServerReal {
-    fn exists(&self, _filename: &str) -> bool {
-        unimplemented!()
+    fn get_handle(
+        &mut self,
+        report: &mut diagn::Report,
+        span: Option<diagn::Span>,
+        filename: &str,
+    ) -> Result<FileServerHandle, ()> {
+        if let Some(handle) = self.handles.get(filename) {
+            return Ok(*handle);
+        }
+
+        let filename_path = std::path::PathBuf::from(filename);
+
+        if !filename_path.exists() {
+            report_error(report, span, format!("file not found: `{}`", filename));
+
+            return Err(());
+        }
+
+        if self.handles.len() == FileServerHandle::MAX {
+            report_error(report, span, "exhausted number of file handles");
+
+            return Err(());
+        }
+
+        let filename_path_str = filename_path.to_string_lossy().to_string();
+
+        match self.handles.get(&filename_path_str) {
+            Some(handle) => Ok(*handle),
+            None => {
+                let handle: FileServerHandle = self.handles.len();
+
+                self.handles.insert(filename_path_str.clone(), handle);
+
+                self.handles_to_filename.push(filename_path_str);
+
+                Ok(handle)
+            }
+        }
+    }
+
+    fn get_filename(&self, file_handle: FileServerHandle) -> &str {
+        &self.handles_to_filename[file_handle]
     }
 
     fn get_bytes(
         &self,
-        report: RcReport,
-        filename: &str,
-        span: Option<&Span>,
+        report: &mut diagn::Report,
+        span: Option<diagn::Span>,
+        file_handle: FileServerHandle,
     ) -> Result<Vec<u8>, ()> {
-        let filename_path = &Path::new(filename);
-
-        if !filename_path.exists() {
-            return Err(error(
-                report,
-                format!("file not found: `{}`", filename),
-                span,
-            ));
+        if let Some(Some(std_contents)) = self.std_files.get(file_handle) {
+            return Ok(std_contents.as_bytes().iter().copied().collect());
         }
 
-        let mut file = match File::open(filename_path) {
-            Ok(file) => file,
-            Err(err) => {
-                return Err(error(
-                    report,
-                    format!("could not open file `{}`: {}", filename, err),
-                    span,
-                ))
+        let filename = &self.handles_to_filename[file_handle];
+        let filename_path = &std::path::Path::new(filename);
+
+        let mut file = {
+            match std::fs::File::open(filename_path) {
+                Ok(file) => file,
+                Err(err) => {
+                    report_error(
+                        report,
+                        span,
+                        format!("could not open file `{}`: {}", filename, err),
+                    );
+
+                    return Err(());
+                }
             }
         };
 
         let mut vec = Vec::new();
+
+        use std::io::Read;
         match file.read_to_end(&mut vec) {
             Ok(_) => Ok(vec),
-            Err(err) => Err(error(
-                report,
-                format!("could not read file `{}`: {}", filename, err),
-                span,
-            )),
+            Err(err) => {
+                report_error(
+                    report,
+                    span,
+                    format!("could not read file `{}`: {}", filename, err),
+                );
+
+                return Err(());
+            }
         }
     }
 
     fn write_bytes(
         &mut self,
-        report: RcReport,
+        report: &mut diagn::Report,
+        span: Option<diagn::Span>,
         filename: &str,
         data: &Vec<u8>,
-        span: Option<&Span>,
     ) -> Result<(), ()> {
-        let filename_path = &Path::new(filename);
+        let filename_path = &std::path::Path::new(filename);
 
-        let mut file = match File::create(filename_path) {
-            Ok(file) => file,
-            Err(err) => {
-                return Err(error(
-                    report,
-                    format!("could not create file `{}`: {}", filename, err),
-                    span,
-                ))
+        let mut file = {
+            match std::fs::File::create(filename_path) {
+                Ok(file) => file,
+                Err(err) => {
+                    report_error(
+                        report,
+                        span,
+                        format!("could not create file `{}`: {}", filename, err),
+                    );
+
+                    return Err(());
+                }
             }
         };
 
+        use std::io::Write;
         match file.write_all(data) {
             Ok(_) => Ok(()),
-            Err(err) => Err(error(
-                report,
-                format!("could not write to file `{}`: {}", filename, err),
-                span,
-            )),
+            Err(err) => {
+                report_error(
+                    report,
+                    span,
+                    format!("could not write to file `{}`: {}", filename, err),
+                );
+
+                Err(())
+            }
         }
     }
 }
 
-fn error<S>(report: RcReport, descr: S, span: Option<&Span>)
+fn report_error<S>(report: &mut diagn::Report, span: Option<diagn::Span>, descr: S)
 where
     S: Into<String>,
 {

@@ -1,11 +1,14 @@
+#subruledef reg
+{
+    r{reg: u4} => {reg}
+}
+
 #ruledef
 {
-    load r1, {value: u8} => 0x11 @ value`8
-    load r2, {value: u8} => 0x12 @ value`8
-    load r3, {value: u8} => 0x13 @ value`8
-    add  r1, r2          => 0x21
-    sub  r3, {value: u8} => 0x33 @ value`8
-    jnz  {address: u16}  => 0x40 @ address`16
+    load {r: reg}, {value: i8} => 0x1 @ r @ value
+    add  {r: reg}, r2          => 0x2 @ r
+    sub  {r: reg}, {value: i8} => 0x3 @ r @ value
+    jnz  {address: u16}  => 0x40 @ address
     ret                  => 0x50
 }
 

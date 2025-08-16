@@ -1,94 +1,65 @@
 use crate::*;
 
-pub fn parse_symbol(state: &mut asm::parser::State) -> Result<(), ()> {
-    let mut span = diagn::Span::new_dummy();
+#[derive(Clone, Debug)]
+pub struct AstSymbol {
+    pub decl_span: diagn::Span,
+    pub hierarchy_level: usize,
+    pub name: String,
+    pub kind: AstSymbolKind,
+    pub no_emit: bool,
+
+    pub item_ref: Option<util::ItemRef<asm::Symbol>>,
+}
+
+#[derive(Clone, Debug)]
+pub enum AstSymbolKind {
+    Constant(AstSymbolConstant),
+    Label,
+}
+
+#[derive(Clone, Debug)]
+pub struct AstSymbolConstant {
+    pub expr: expr::Expr,
+}
+
+pub fn parse(report: &mut diagn::Report, walker: &mut syntax::Walker) -> Result<asm::AstAny, ()> {
+    let mut decl_span = diagn::Span::new_dummy();
     let mut hierarchy_level = 0;
 
-    while let Some(tk_dot) = state.parser.maybe_expect(syntax::TokenKind::Dot) {
+    while let Some(tk_dot) = walker.maybe_expect(syntax::TokenKind::Dot) {
         hierarchy_level += 1;
-        span = span.join(&tk_dot.span);
+        decl_span = decl_span.join(tk_dot.span);
     }
 
-    let tk_name = state.parser.expect(syntax::TokenKind::Identifier)?;
-    let name = tk_name.excerpt.clone().unwrap();
-    span = span.join(&tk_name.span);
+    let tk_name = walker.expect(report, syntax::TokenKind::Identifier)?;
+    let name = walker.get_span_excerpt(tk_name.span).to_string();
+    decl_span = decl_span.join(tk_name.span);
 
-    let ctx;
-    let kind;
+    if walker.maybe_expect(syntax::TokenKind::Equal).is_some() {
+        let expr = expr::parse(report, walker)?;
+        walker.expect_linebreak(report)?;
 
-    let value = if state
-        .parser
-        .maybe_expect(syntax::TokenKind::Equal)
-        .is_some()
-    {
-        kind = asm::SymbolKind::Constant;
-        ctx = state.asm_state.get_ctx(state);
-        let expr = expr::Expr::parse(&mut state.parser)?;
-        let value = state.asm_state.eval_expr(
-            state.report.clone(),
-            &expr,
-            &ctx,
-            &mut expr::EvalContext::new(),
-            state.fileserver,
-            false,
-        )?;
+        Ok(asm::AstAny::Symbol(AstSymbol {
+            decl_span,
+            hierarchy_level,
+            name,
+            kind: AstSymbolKind::Constant(AstSymbolConstant { expr }),
+            no_emit: false,
 
-        let bankdata = state.asm_state.get_bankdata_mut(state.asm_state.cur_bank);
-        bankdata.push_invocation(asm::Invocation {
-            ctx: ctx.clone(),
-            size_guess: 0,
-            span: span.clone(),
-            kind: asm::InvocationKind::Constant(asm::ConstantInvocation {
-                expr,
-                value_guess: value.clone(),
-            }),
-        });
-
-        state.parser.expect_linebreak()?;
-        value
+            item_ref: None,
+        }))
     } else {
-        kind = asm::SymbolKind::Label;
+        let tk_colon = walker.expect(report, syntax::TokenKind::Colon)?;
+        decl_span = decl_span.join(tk_colon.span);
 
-        if hierarchy_level == 0 && state.asm_state.cur_labelalign != 0 {
-            let bankdata = state.asm_state.get_bankdata(state.asm_state.cur_bank);
-            let skip_bits =
-                bankdata.bits_until_aligned(state.asm_state, state.asm_state.cur_labelalign);
+        Ok(asm::AstAny::Symbol(AstSymbol {
+            decl_span,
+            hierarchy_level,
+            name,
+            kind: AstSymbolKind::Label,
+            no_emit: false,
 
-            let bankdata = state.asm_state.get_bankdata_mut(state.asm_state.cur_bank);
-            bankdata.reserve(skip_bits);
-        }
-
-        let tk_colon = state.parser.expect(syntax::TokenKind::Colon)?;
-
-        span = span.join(&tk_colon.span);
-
-        ctx = state.asm_state.get_ctx(state);
-        let addr = state
-            .asm_state
-            .get_addr(state.report.clone(), &ctx, &span)?;
-
-        let bankdata = state.asm_state.get_bankdata_mut(state.asm_state.cur_bank);
-        bankdata.push_invocation(asm::Invocation {
-            ctx: ctx.clone(),
-            size_guess: 0,
-            span: span.clone(),
-            kind: asm::InvocationKind::Label(asm::LabelInvocation),
-        });
-
-        expr::Value::make_integer(addr)
-    };
-
-    state.asm_state.symbols.create(
-        &ctx.symbol_ctx,
-        name,
-        hierarchy_level,
-        kind,
-        value,
-        state.asm_state.cur_bank,
-        state.report.clone(),
-        &span,
-        !state.asm_state.is_noemit,
-    )?;
-
-    Ok(())
+            item_ref: None,
+        }))
+    }
 }

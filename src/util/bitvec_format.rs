@@ -1,5 +1,16 @@
 use crate::*;
 
+#[derive(Debug, Clone)]
+pub struct FormatListOptions {
+    pub base: usize,
+    pub digits_per_group: usize,
+    pub groups_per_group2: usize,
+    pub str_before: String,
+    pub str_after: String,
+    pub str_between_groups: String,
+    pub str_between_groups2: String,
+}
+
 impl util::BitVec {
     pub fn format_binary(&self) -> Vec<u8> {
         let mut result = Vec::new();
@@ -9,7 +20,7 @@ impl util::BitVec {
             let mut byte: u8 = 0;
             for _ in 0..8 {
                 byte <<= 1;
-                byte |= if self.read(index) { 1 } else { 0 };
+                byte |= if self.read_bit(index) { 1 } else { 0 };
                 index += 1;
             }
 
@@ -25,13 +36,12 @@ impl util::BitVec {
         for byte in bytes.clone() {
             let mut n = util::BigInt::from(byte);
             n.size = Some(8);
-            result.write_bigint(index, n);
+            result.write_bigint(index, &n);
             index += 8;
         }
 
-        for _ in 0..(bytes.len() * 8 % wordsize) {
-            result.bits.pop();
-        }
+        let bits = bytes.len() * 8;
+        result = result.slice(0, bits - bits % wordsize);
 
         result
     }
@@ -92,17 +102,36 @@ impl util::BitVec {
     }
 
     pub fn format_hexline(&self, wordsize: usize) -> String {
-        self.bits
-            .chunks(wordsize)
-            .map(|bits| {
-                (Self {
-                    bits: bits.to_vec(),
-                    spans: vec![],
-                })
-                .format_hexstr()
-            })
-            .reduce(|acc, e| acc + "\n" + &e)
-            .unwrap_or("".to_string())
+        let mut result = String::new();
+
+        let mut index = 0;
+        let mut word = 0;
+        while index < self.len() {
+            let mut digit: u8 = 0;
+            for _ in 0..4 {
+                digit <<= 1;
+                digit |= if self.read_bit(index) { 1 } else { 0 };
+                index += 1;
+                word += 1;
+                if word == wordsize {
+                    break;
+                }
+            }
+
+            let c = if digit < 10 {
+                ('0' as u8 + digit) as char
+            } else {
+                ('a' as u8 + digit - 10) as char
+            };
+
+            result.push(c);
+            if word == wordsize {
+                result.push('\n');
+                word = 0;
+            }
+        }
+
+        result
     }
 
     pub fn parse_hexline(string: String, wordsize: usize) -> Self {
@@ -124,7 +153,7 @@ impl util::BitVec {
             let mut digit: u8 = 0;
             for _ in 0..bits_per_digit {
                 digit <<= 1;
-                digit |= if self.read(index) { 1 } else { 0 };
+                digit |= if self.read_bit(index) { 1 } else { 0 };
                 index += 1;
             }
 
@@ -146,17 +175,20 @@ impl util::BitVec {
         for c in string.as_bytes() {
             let byte = c - '0' as u8;
 
-            let digit = if byte < 10 { byte } else { c - 'a' as u8 + 10 };
+            let digit = if byte < 10 {
+                byte
+            } else {
+                c + '0' as u8 - 'a' as u8
+            };
 
             let mut n = util::BigInt::from(digit);
             n.size = Some(bits_per_digit);
-            result.write_bigint(index, n);
+            result.write_bigint(index, &n);
             index += bits_per_digit;
         }
 
-        for _ in 0..(result.bits.len() * bits_per_digit % wordsize) {
-            result.bits.pop();
-        }
+        let bits = string.len() * bits_per_digit;
+        result = result.slice(0, bits - bits % wordsize - 1);
 
         result
     }
@@ -209,7 +241,7 @@ impl util::BitVec {
                     let mut digit = 0;
                     for bit_index in 0..digit_bits {
                         digit <<= 1;
-                        digit |= if self.read(digit_first_bit + bit_index) {
+                        digit |= if self.read_bit(digit_first_bit + bit_index) {
                             1
                         } else {
                             0
@@ -246,7 +278,7 @@ impl util::BitVec {
                     let mut byte = 0u8;
                     for bit_index in 0..byte_bits {
                         byte <<= 1;
-                        byte |= if self.read(byte_first_bit + bit_index) {
+                        byte |= if self.read_bit(byte_first_bit + bit_index) {
                             1
                         } else {
                             0
@@ -273,96 +305,147 @@ impl util::BitVec {
         result
     }
 
-    pub fn format_mif(&self, data_radix: usize, wordsize: usize) -> String {
+    pub fn format_mif(&self) -> String {
         let mut result = String::new();
 
-        let byte_num = self.len() / wordsize + if self.len() % wordsize != 0 { 1 } else { 0 };
+        let byte_num = self.len() / 8 + if self.len() % 8 != 0 { 1 } else { 0 };
 
         result.push_str(&format!("DEPTH = {};\n", byte_num));
-        result.push_str(&format!("WIDTH = {};\n", wordsize));
+        result.push_str("WIDTH = 8;\n");
         result.push_str("ADDRESS_RADIX = HEX;\n");
-        result.push_str(&format!(
-            "DATA_RADIX = {};\n",
-            match data_radix {
-                1 => "BIN",
-                2 => "OCT",
-                4 => "HEX",
-                _ => "HEX",
-            }
-        ));
+        result.push_str("DATA_RADIX = HEX;\n");
         result.push_str("\n");
         result.push_str("CONTENT\n");
         result.push_str("BEGIN\n");
 
         let addr_max_width = format!("{:x}", byte_num - 1).len();
 
-        let word_length = (wordsize + data_radix - 1) / data_radix;
-        let fmt_word: _ = match data_radix {
-            1 => |word: usize| format!("{:b}", word),
-            2 => |word: usize| format!("{:o}", word),
-            4 => |word: usize| format!("{:X}", word),
-            _ => |word: usize| format!("{:X}", word),
-        };
-
         let mut index = 0;
         while index < self.len() {
             result.push_str(&format!(" {:1$X}: ", index / 8, addr_max_width));
 
-            let mut word: usize = 0;
-            for _ in 0..wordsize {
-                word <<= 1;
-                word |= if self.read(index) { 1 } else { 0 };
+            let mut byte: u8 = 0;
+            for _ in 0..8 {
+                byte <<= 1;
+                byte |= if self.read_bit(index) { 1 } else { 0 };
                 index += 1;
             }
 
-            result.push_str(&format!("{:0>1$};\n", fmt_word(word), word_length));
+            result.push_str(&format!("{:02X};\n", byte));
         }
 
         result.push_str("END;");
         result
     }
 
-    pub fn format_intelhex(&self) -> String {
+    pub fn format_intelhex(&self, address_unit: usize) -> String {
         let mut result = String::new();
 
-        let mut bytes_left = self.len() / 8 + if self.len() % 8 != 0 { 1 } else { 0 };
+        let mut flush_bytes =
+            |read_index: usize, accum_index: &mut usize, accum_bytes: &mut Vec<u8>| {
+                let length = accum_bytes.len() as u8;
 
-        let mut index = 0;
-        while index < self.len() {
-            let bytes_in_row = if bytes_left > 32 { 32 } else { bytes_left };
+                if length > 0 {
+                    let addr_hi = ((*accum_index / address_unit) >> 8) as u8;
+                    let addr_lo = (*accum_index / address_unit) as u8;
 
-            result.push(':');
-            result.push_str(&format!("{:02X}", bytes_in_row));
-            result.push_str(&format!("{:04X}", index / 8));
-            result.push_str("00");
+                    result.push(':');
+                    result.push_str(&format!("{:02X}", length));
+                    result.push_str(&format!("{:02X}", addr_hi));
+                    result.push_str(&format!("{:02X}", addr_lo));
+                    result.push_str("00");
 
-            let mut checksum = 0_u8;
-            checksum = checksum.wrapping_add(bytes_in_row as u8);
-            checksum = checksum.wrapping_add(((index / 8) >> 8) as u8);
-            checksum = checksum.wrapping_add((index / 8) as u8);
+                    let mut checksum = 0_u8;
+                    checksum = checksum.wrapping_add(length);
+                    checksum = checksum.wrapping_add(addr_hi);
+                    checksum = checksum.wrapping_add(addr_lo);
 
-            for _ in 0..bytes_in_row {
+                    for byte in accum_bytes.iter().copied() {
+                        result.push_str(&format!("{:02X}", byte));
+                        checksum = checksum.wrapping_add(byte);
+                    }
+
+                    result.push_str(&format!("{:02X}", (!checksum).wrapping_add(1)));
+                    result.push('\n');
+                }
+
+                accum_bytes.clear();
+                *accum_index = read_index;
+            };
+
+        for block in self.get_blocks() {
+            let mut read_index = block.offset;
+            let mut accum_index = block.offset;
+            let mut accum_bytes = Vec::<u8>::new();
+
+            while read_index < block.offset + block.size {
                 let mut byte: u8 = 0;
                 for _ in 0..8 {
                     byte <<= 1;
-                    byte |= if self.read(index) { 1 } else { 0 };
-                    index += 1;
+                    byte |= if self.read_bit(read_index) { 1 } else { 0 };
+                    read_index += 1;
                 }
 
-                result.push_str(&format!("{:02X}", byte));
-                checksum = checksum.wrapping_add(byte);
+                accum_bytes.push(byte);
+
+                if accum_bytes.len() >= 32 {
+                    flush_bytes(read_index, &mut accum_index, &mut accum_bytes);
+                }
             }
 
-            bytes_left -= bytes_in_row;
-            result.push_str(&format!("{:02X}", (!checksum).wrapping_add(1)));
-            result.push('\n');
+            flush_bytes(read_index, &mut accum_index, &mut accum_bytes);
         }
 
         result.push_str(":00000001FF");
         result
     }
 
-    pub fn format_comma(&self, radix: usize) -> String {
+    pub fn format_list(&self, opts: &FormatListOptions) -> String {
+        let mut result = String::new();
+        result.push_str(&opts.str_before);
+
+        let bits_per_digit = (opts.base - 1).count_ones() as usize;
+
+        let mut index = 0;
+        let mut groups_output = 0;
+        while index < self.len() {
+            for _ in 0..opts.digits_per_group {
+                let mut digit: u8 = 0;
+                for _ in 0..bits_per_digit {
+                    digit <<= 1;
+                    digit |= if self.read_bit(index) { 1 } else { 0 };
+                    index += 1;
+                }
+
+                let c = {
+                    if digit < 10 {
+                        ('0' as u8 + digit) as char
+                    } else {
+                        ('a' as u8 + digit - 10) as char
+                    }
+                };
+
+                result.push(c);
+            }
+
+            if index < self.len() {
+                groups_output += 1;
+
+                if opts.str_between_groups2.len() > 0 && groups_output % opts.groups_per_group2 == 0
+                {
+                    result.push_str(&opts.str_between_groups2);
+                } else {
+                    result.push_str(&opts.str_between_groups);
+                }
+            }
+        }
+
+        result.push_str(&opts.str_after);
+
+        result
+    }
+
+    pub fn format_separator(&self, radix: usize, separator: &str) -> String {
         let mut result = String::new();
 
         let mut index = 0;
@@ -370,7 +453,7 @@ impl util::BitVec {
             let mut byte: u8 = 0;
             for _ in 0..8 {
                 byte <<= 1;
-                byte |= if self.read(index) { 1 } else { 0 };
+                byte |= if self.read_bit(index) { 1 } else { 0 };
                 index += 1;
             }
 
@@ -381,7 +464,7 @@ impl util::BitVec {
             }
 
             if index < self.len() {
-                result.push_str(", ");
+                result.push_str(separator);
 
                 if (index / 8) % 16 == 0 {
                     result.push('\n');
@@ -407,7 +490,7 @@ impl util::BitVec {
             let mut byte: u8 = 0;
             for _ in 0..8 {
                 byte <<= 1;
-                byte |= if self.read(index) { 1 } else { 0 };
+                byte |= if self.read_bit(index) { 1 } else { 0 };
                 index += 1;
             }
 
@@ -478,7 +561,7 @@ impl util::BitVec {
             let mut value: u16 = 0;
             for _ in 0..bits_per_chunk {
                 value <<= 1;
-                value |= if self.read(index) { 1 } else { 0 };
+                value |= if self.read_bit(index) { 1 } else { 0 };
                 index += 1;
             }
 
@@ -491,51 +574,46 @@ impl util::BitVec {
         result
     }
 
-    pub fn format_annotated_bin(
-        &self,
-        fileserver: &dyn util::FileServer,
-        wordsize: usize,
-    ) -> String {
-        self.format_annotated(fileserver, 1, wordsize)
-    }
-
-    pub fn format_annotated_hex(
-        &self,
-        fileserver: &dyn util::FileServer,
-        wordsize: usize,
-    ) -> String {
-        self.format_annotated(fileserver, 4, wordsize)
-    }
-
     pub fn format_annotated(
         &self,
         fileserver: &dyn util::FileServer,
-        digit_bits: usize,
-        wordsize: usize,
+        base: usize,
+        digits_per_group: usize,
     ) -> String {
         let mut result = String::new();
 
-        let word_digits = (wordsize + digit_bits - 1) / digit_bits;
+        let bits_per_digit = (base - 1).count_ones() as usize;
+        let bits_per_group = digits_per_group * bits_per_digit;
 
         let mut outp_width = 2;
-        let outp_bit_width = (digit_bits as f32 - 1f32).log(16f32).ceil() as usize;
+        let mut outp_bit_width = 1;
         let mut addr_width = 4;
-        let mut content_width = (word_digits + 1) * 1 - 1;
+        let mut content_width = (digits_per_group + 1) * 1 - 1;
 
         let mut sorted_spans = self.spans.clone();
         sorted_spans.sort_by(|a, b| a.offset.cmp(&b.offset));
 
         for span in &sorted_spans {
             if let Some(offset) = span.offset {
-                outp_width = std::cmp::max(outp_width, format!("{:x}", offset / wordsize).len());
+                outp_width =
+                    std::cmp::max(outp_width, format!("{:x}", offset / bits_per_group).len());
+
+                outp_bit_width = std::cmp::max(
+                    outp_bit_width,
+                    format!("{:x}", offset % bits_per_group).len(),
+                );
 
                 addr_width = std::cmp::max(addr_width, format!("{:x}", span.addr).len());
 
-                let data_digits =
-                    span.size / digit_bits + if span.size % digit_bits == 0 { 0 } else { 1 };
-                let this_content_width = data_digits + data_digits / word_digits;
+                let data_digits = span.size / bits_per_digit
+                    + if span.size % bits_per_digit == 0 {
+                        0
+                    } else {
+                        1
+                    };
+                let this_content_width = data_digits + data_digits / digits_per_group;
 
-                if this_content_width > 1 && this_content_width <= (word_digits + 1) * 5 {
+                if this_content_width > 1 && this_content_width <= (digits_per_group + 1) * 5 {
                     content_width = std::cmp::max(content_width, this_content_width - 1);
                 }
             }
@@ -546,18 +624,22 @@ impl util::BitVec {
             "outp",
             outp_width + outp_bit_width + 1
         ));
-        result.push_str(&format!(" {:>1$} | data", "addr", addr_width));
+        result.push_str(&format!(" {:>1$} |", "addr", addr_width));
+        result.push_str(&format!(" data (base {})", base));
         result.push_str("\n");
         result.push_str("\n");
 
-        let mut prev_filename = "";
-        let mut prev_file_chars = Vec::new();
+        let mut prev_file_handle = util::FileServerHandle::MAX;
+        let mut prev_file_chars = "".to_string();
 
-        let digit_num = wordsize / digit_bits + if wordsize % digit_bits == 0 { 0 } else { 1 };
         for span in &sorted_spans {
             if let Some(offset) = span.offset {
-                result.push_str(&format!(" {:1$x}", offset / word_digits, outp_width));
-                result.push_str(&format!(":{:1$x} | ", offset % word_digits, outp_bit_width));
+                result.push_str(&format!(" {:1$x}", offset / bits_per_group, outp_width));
+                result.push_str(&format!(
+                    ":{:1$x} | ",
+                    offset % bits_per_group,
+                    outp_bit_width
+                ));
             } else {
                 result.push_str(&format!(" {:>1$}", "--", outp_width));
                 result.push_str(&format!(":{:>1$} | ", "-", outp_bit_width));
@@ -567,58 +649,187 @@ impl util::BitVec {
 
             let mut contents_str = String::new();
 
-            let word_num = span.size / wordsize;
-            for word_index in 0..word_num {
-                if word_index > 0 {
+            let digit_num = span.size / bits_per_digit
+                + if span.size % bits_per_digit == 0 {
+                    0
+                } else {
+                    1
+                };
+            for digit_index in 0..digit_num {
+                if digit_index > 0 && digit_index % digits_per_group == 0 {
                     contents_str.push_str(" ");
                 }
 
-                for digit_index in 0..digit_num {
-                    let mut digit = 0;
-                    for bit_index in 0..digit_bits {
-                        let j = digit_index * digit_bits + bit_index;
-                        let bit = if j < wordsize {
-                            self.read(span.offset.unwrap() + word_index * wordsize + j)
-                        } else {
-                            false
-                        };
+                let mut digit = 0;
+                for bit_index in 0..bits_per_digit {
+                    let i = span.offset.unwrap() + digit_index * bits_per_digit + bit_index;
+                    let bit = self.read_bit(i);
 
-                        digit <<= 1;
-                        digit |= if bit { 1 } else { 0 };
-                    }
-
-                    let c = if digit < 10 {
-                        ('0' as u8 + digit) as char
-                    } else {
-                        ('a' as u8 + digit - 10) as char
-                    };
-
-                    contents_str.push(c);
+                    digit <<= 1;
+                    digit |= if bit { 1 } else { 0 };
                 }
+
+                let c = if digit < 10 {
+                    ('0' as u8 + digit) as char
+                } else {
+                    ('a' as u8 + digit - 10) as char
+                };
+
+                contents_str.push(c);
             }
 
-            if &*span.span.file != prev_filename {
-                prev_filename = &*span.span.file;
-                prev_file_chars = fileserver
-                    .get_chars(diagn::RcReport::new(), &prev_filename, None)
-                    .ok()
-                    .unwrap();
+            if span.span.file_handle != prev_file_handle {
+                prev_file_handle = span.span.file_handle;
+                prev_file_chars = fileserver.get_str_unwrap(prev_file_handle);
             }
 
-            let span_location = span.span.location.unwrap();
+            let span_location = span.span.location().unwrap();
             let char_counter = util::CharCounter::new(&prev_file_chars);
 
             result.push_str(&format!("{:1$}", contents_str, content_width));
             result.push_str(&format!(
                 " ; {}",
-                char_counter
-                    .get_excerpt(span_location.0, span_location.1)
-                    .iter()
-                    .collect::<String>()
+                char_counter.get_excerpt(span_location.0, span_location.1)
             ));
             result.push_str("\n");
         }
 
+        result
+    }
+
+    // Turing Complete is a game in which you advance from nand gates to
+    // computer architecture. Its assembly editor uses `#` comments,
+    // `0b` and `0x` prefixes for binary and hex, and groups of 8 or 8x4 bytes.
+    // This format produces annotated bytecode that meets these constraints.
+    //
+    // The implementation is a clone of format_annotated. Large portions
+    // could easily be factored out and shared or this could be converted into
+    // a configuration option for format_annotated with some work.
+    pub fn format_tcgame(
+        &self,
+        fileserver: &dyn util::FileServer,
+        base: usize,
+        digits_per_group: usize,
+    ) -> String {
+        let mut result = String::new();
+        assert!(base == 2 || base == 16);
+        let prefix: &str = if base == 2 { "0b" } else { "0x" };
+        let comment: &str = "#";
+
+        let bits_per_digit = (base - 1).count_ones() as usize;
+        let bits_per_group = digits_per_group * bits_per_digit;
+
+        let mut outp_width = 2;
+        let mut outp_bit_width = 1;
+        let mut addr_width = 4;
+        let mut content_width = (digits_per_group + 1) * 1 - 1;
+
+        let mut sorted_spans = self.spans.clone();
+        sorted_spans.sort_by(|a, b| a.offset.cmp(&b.offset));
+
+        for span in &sorted_spans {
+            if let Some(offset) = span.offset {
+                outp_width =
+                    std::cmp::max(outp_width, format!("{:x}", offset / bits_per_group).len());
+
+                outp_bit_width = std::cmp::max(
+                    outp_bit_width,
+                    format!("{:x}", offset % bits_per_group).len(),
+                );
+
+                addr_width = std::cmp::max(addr_width, format!("{:x}", span.addr).len());
+
+                let data_digits = span.size / bits_per_digit
+                    + if span.size % bits_per_digit == 0 {
+                        0
+                    } else {
+                        1
+                    };
+                let this_content_width = data_digits + data_digits / digits_per_group;
+
+                if this_content_width > 1 && this_content_width <= (digits_per_group + 1) * 5 {
+                    content_width = std::cmp::max(content_width, this_content_width - 1);
+                }
+            }
+        }
+        result.push_str(&format!(
+            "{comment} {:>1$} |",
+            "outp",
+            outp_width + outp_bit_width + 1
+        ));
+        result.push_str(&format!(" {:>1$} |", "addr", addr_width));
+        result.push_str(&format!(" data (base {})", base));
+        result.push_str("\n");
+        result.push_str("\n");
+
+        let mut prev_file_handle = util::FileServerHandle::MAX;
+        let mut prev_file_chars = "".to_string();
+
+        for span in &sorted_spans {
+            result.push_str(&format!("{comment} "));
+            // offset
+            if let Some(offset) = span.offset {
+                result.push_str(&format!(" {:1$x}", offset / bits_per_group, outp_width));
+                result.push_str(&format!(
+                    ":{:1$x} | ",
+                    offset % bits_per_group,
+                    outp_bit_width
+                ));
+            } else {
+                result.push_str(&format!(" {:>1$}", "--", outp_width));
+                result.push_str(&format!(":{:>1$} | ", "-", outp_bit_width));
+            }
+
+            // addr
+            result.push_str(&format!("{:1$x} \n", span.addr, addr_width));
+
+            // instruction excerpt
+            if span.span.file_handle != prev_file_handle {
+                prev_file_handle = span.span.file_handle;
+                prev_file_chars = fileserver.get_str_unwrap(prev_file_handle);
+            }
+            let span_location = span.span.location().unwrap();
+            let char_counter = util::CharCounter::new(&prev_file_chars);
+            result.push_str(&format!(
+                "{comment} {}\n",
+                char_counter.get_excerpt(span_location.0, span_location.1)
+            ));
+
+            // bytecode
+            let mut contents_str = String::new();
+            let digit_num = span.size / bits_per_digit
+                + if span.size % bits_per_digit == 0 {
+                    0
+                } else {
+                    1
+                };
+            for digit_index in 0..digit_num {
+                if digit_index % digits_per_group == 0 {
+                    if digit_index > 0 {
+                        contents_str.push_str(" ");
+                    }
+                    contents_str.push_str(prefix);
+                }
+
+                let mut digit = 0;
+                for bit_index in 0..bits_per_digit {
+                    let i = span.offset.unwrap() + digit_index * bits_per_digit + bit_index;
+                    let bit = self.read_bit(i);
+
+                    digit <<= 1;
+                    digit |= if bit { 1 } else { 0 };
+                }
+
+                let c = if digit < 10 {
+                    ('0' as u8 + digit) as char
+                } else {
+                    ('a' as u8 + digit - 10) as char
+                };
+
+                contents_str.push(c);
+            }
+            result.push_str(&format!("{:1$}\n", contents_str, content_width));
+        }
         result
     }
 
@@ -635,9 +846,9 @@ impl util::BitVec {
 
         for span in &sorted_spans {
             let chars = fileserver
-                .get_chars(diagn::RcReport::new(), &span.span.file, None)
-                .ok()
+                .get_str(&mut diagn::Report::new(), None, span.span.file_handle)
                 .unwrap();
+
             let counter = util::CharCounter::new(&chars);
 
             if let Some(offset) = span.offset {
@@ -648,16 +859,17 @@ impl util::BitVec {
 
             result.push_str(&format!("{:x} | ", span.addr));
 
-            if let Some((start, end)) = span.span.location {
+            if let Some((start, end)) = span.span.location() {
                 let (line_start, col_start) = counter.get_line_column_at_index(start);
                 let (line_end, col_end) = counter.get_line_column_at_index(end);
+                let filename = fileserver.get_filename(span.span.file_handle);
 
                 result.push_str(&format!(
                     "{}:{}:{}:{}:{}",
-                    &span.span.file, line_start, col_start, line_end, col_end
+                    filename, line_start, col_start, line_end, col_end
                 ));
             } else {
-                result.push_str(&format!("{}:-:-:-:-", &span.span.file));
+                result.push_str(&format!("{}:-:-:-:-", &span.span.file_handle));
             };
 
             result.push_str("\n");
